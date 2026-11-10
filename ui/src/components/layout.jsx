@@ -232,9 +232,9 @@ export function Layout() {
             <SidebarMenuItem>
               <SidebarMenuButton size="lg" asChild>
                 <Link to="/">
-                  {/* Wrapped: the menu button shrinks direct svg children to 16 px. */}
+                  {/* The sidebar button shrinks every svg inside it to 16 px; the logo overrides that. */}
                   <span className="flex size-8 shrink-0">
-                    <Logo className="size-full" />
+                    <Logo className="size-full!" />
                   </span>
                   <div className="grid flex-1 text-left text-sm leading-tight">
                     <span className="truncate font-semibold">LatchAdmin</span>
