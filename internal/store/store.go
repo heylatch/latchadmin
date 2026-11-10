@@ -90,13 +90,31 @@ type Settings struct {
 	CheckLatch bool `json:"checkLatch"`
 }
 
+// Webhook is a Discord webhook and the events it receives.
+type Webhook struct {
+	ID         string    `json:"id"`
+	Name       string    `json:"name"`
+	URL        string    `json:"url"` // sealed
+	Lang       string    `json:"lang"`
+	Events     []string  `json:"events"`
+	Servers    []string  `json:"servers"` // empty = every server
+	Enabled    bool      `json:"enabled"`
+	LastSentAt time.Time `json:"lastSentAt"`
+	LastError  string    `json:"lastError,omitempty"`
+}
+
 type State struct {
 	InstanceID string    `json:"instanceId"`
-	Settings   Settings  `json:"settings"`
-	Users      []User    `json:"users"`
-	Sessions   []Session `json:"sessions"`
-	Servers    []Server  `json:"servers"`
-	Latch      Latch     `json:"latch"`
+	Webhooks   []Webhook `json:"webhooks"`
+	// Notified remembers one-time notices ("game.available:arcane-mp:1.12.3") so they're sent once.
+	Notified map[string]bool `json:"notified,omitempty"`
+	// PlayerRecords is each server's highest player count, for "new record" notices.
+	PlayerRecords map[string]int `json:"playerRecords,omitempty"`
+	Settings      Settings       `json:"settings"`
+	Users         []User         `json:"users"`
+	Sessions      []Session      `json:"sessions"`
+	Servers       []Server       `json:"servers"`
+	Latch         Latch          `json:"latch"`
 }
 
 type Store struct {

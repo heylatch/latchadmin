@@ -26,6 +26,11 @@ var allowedHosts = map[string]bool{
 	"api.mafiahub.dev": true, // MafiaHub: game server releases
 	"api.github.com":   true, // LatchAdmin releases (fallback when the Latch manifest is off)
 	"github.com":       true, // LatchAdmin release downloads
+	// Discord webhooks the owner sets up for notifications (package notify only accepts /api/webhooks/ URLs).
+	"discord.com":        true,
+	"discordapp.com":     true,
+	"canary.discord.com": true,
+	"ptb.discord.com":    true,
 }
 
 // Download hosts that the hosts above redirect to.

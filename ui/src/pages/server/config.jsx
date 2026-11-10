@@ -259,7 +259,12 @@ function TokenCard({ server, reload }) {
     <Card>
       <CardHeader>
         <CardTitle>{t("token.title")}</CardTitle>
-        <CardDescription>{t("token.text", { port: server.port })}</CardDescription>
+        <CardDescription>
+          {t("token.text", { port: server.port })}{" "}
+          <a href="https://mafiahub.dev/" target="_blank" rel="noreferrer" className="underline underline-offset-4">
+            mafiahub.dev
+          </a>
+        </CardDescription>
         <CardAction>
           {server.tokenSet ? (
             <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">

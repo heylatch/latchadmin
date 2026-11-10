@@ -85,17 +85,18 @@ type Proc struct {
 	// OnState is called (outside locks) after every state change.
 	OnState func(State)
 
-	mu       sync.Mutex
-	cmd      *exec.Cmd
-	stdin    io.WriteCloser
-	killer   killer
-	st       Status
-	stopping bool
-	done     chan struct{} // closed when the process has exited
-	fin      chan struct{} // closed after exit handling, when the state is final
-	restartT *time.Timer
-	backoff  time.Duration
-	cpuPrev  cpuSample
+	mu         sync.Mutex
+	cmd        *exec.Cmd
+	stdin      io.WriteCloser
+	killer     killer
+	st         Status
+	stopping   bool
+	done       chan struct{} // closed when the process has exited
+	fin        chan struct{} // closed after exit handling, when the state is final
+	restarting bool
+	restartT   *time.Timer
+	backoff    time.Duration
+	cpuPrev    cpuSample
 
 	cmu      sync.Mutex // one quiet query at a time
 	capt     *capture
@@ -359,10 +360,25 @@ func (p *Proc) Stop() error {
 
 // Restart stops and starts the server.
 func (p *Proc) Restart() error {
+	p.mu.Lock()
+	p.restarting = true
+	p.mu.Unlock()
+	defer func() {
+		p.mu.Lock()
+		p.restarting = false
+		p.mu.Unlock()
+	}()
 	if err := p.Stop(); err != nil {
 		return err
 	}
 	return p.Start()
+}
+
+// Restarting reports whether a restart (stop then start) is under way.
+func (p *Proc) Restarting() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.restarting
 }
 
 // Send writes one console command to the server.

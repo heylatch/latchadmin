@@ -2,6 +2,7 @@ import { Link, NavLink, Outlet, useLocation } from "react-router"
 import { useTranslation } from "react-i18next"
 import {
   ActivityIcon,
+  BellIcon,
   ChartLineIcon,
   ChevronsUpDownIcon,
   KeyRoundIcon,
@@ -95,6 +96,7 @@ function Nav({ servers }) {
         <SidebarMenu>
           {item("/latch", "Latch", KeyRoundIcon)}
           {can("panel.activity") && item("/activity", t("nav.activity"), ActivityIcon)}
+          {can("panel.settings") && item("/notifications", t("nav.notifications"), BellIcon)}
           {can("panel.users") && item("/users", t("nav.users"), UsersIcon)}
           {item("/settings", t("nav.settings"), SettingsIcon)}
         </SidebarMenu>

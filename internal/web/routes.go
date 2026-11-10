@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -23,6 +24,7 @@ import (
 	"github.com/heylatch/latchadmin/internal/buildinfo"
 	"github.com/heylatch/latchadmin/internal/games"
 	"github.com/heylatch/latchadmin/internal/metrics"
+	"github.com/heylatch/latchadmin/internal/notify"
 	"github.com/heylatch/latchadmin/internal/perms"
 	"github.com/heylatch/latchadmin/internal/release"
 	"github.com/heylatch/latchadmin/internal/resources"
@@ -56,6 +58,12 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/audit", s.api("panel.activity", s.audit))
 	m.HandleFunc("GET /api/browse", s.api(perms.All, s.browse)) // lists the whole disk: only for full access
 	m.HandleFunc("GET /api/stats", s.api(signedIn, s.stats))
+	// Discord notifications
+	m.HandleFunc("GET /api/webhooks", s.api("panel.settings", s.listWebhooks))
+	m.HandleFunc("POST /api/webhooks", s.api("panel.settings", s.saveWebhook))
+	m.HandleFunc("PATCH /api/webhooks/{wid}", s.api("panel.settings", s.saveWebhook))
+	m.HandleFunc("DELETE /api/webhooks/{wid}", s.api("panel.settings", s.deleteWebhook))
+	m.HandleFunc("POST /api/webhooks/{wid}/test", s.api("panel.settings", s.testWebhook))
 	// Servers
 	m.HandleFunc("GET /api/games", s.api(signedIn, s.games))
 	m.HandleFunc("GET /api/servers", s.api(signedIn, s.listServers))
@@ -440,7 +448,6 @@ func (s *Server) grantableServers(me ctxUser, all bool, list []string) ([]string
 	}
 	return out, nil
 }
-
 
 func (s *Server) createUser(w http.ResponseWriter, r *http.Request, me ctxUser) error {
 	var in struct {
@@ -1597,5 +1604,147 @@ func (s *Server) serverStats(w http.ResponseWriter, r *http.Request, _ ctxUser) 
 		"events":  events,
 		"host":    s.App.Metrics.HostInfo(),
 	})
+	return nil
+}
+
+// ---------- Discord notifications ----------
+
+func webhookView(w store.Webhook) map[string]any {
+	servers := w.Servers
+	if servers == nil {
+		servers = []string{}
+	}
+	return map[string]any{"id": w.ID, "name": w.Name, "url": notify.MaskURL(secret.MustOpen(w.URL)), "lang": w.Lang, "events": w.Events,
+		"servers": servers, "enabled": w.Enabled, "lastSentAt": w.LastSentAt, "lastError": w.LastError}
+}
+
+func (s *Server) listWebhooks(w http.ResponseWriter, r *http.Request, _ ctxUser) error {
+	out := []map[string]any{}
+	s.App.Store.Read(func(st *store.State) {
+		for _, h := range st.Webhooks {
+			out = append(out, webhookView(h))
+		}
+	})
+	writeJSON(w, 200, map[string]any{"webhooks": out, "groups": notify.Groups})
+	return nil
+}
+
+// saveWebhook creates (POST) or changes (PATCH) a webhook. On change, an empty URL keeps the stored one.
+func (s *Server) saveWebhook(w http.ResponseWriter, r *http.Request, u ctxUser) error {
+	var in struct {
+		Name    string
+		URL     string
+		Lang    string
+		Events  []string
+		Servers []string
+		Enabled bool
+	}
+	if err := decode(r, &in); err != nil {
+		return err
+	}
+	id := r.PathValue("wid")
+	in.Name = strings.TrimSpace(in.Name)
+	if in.Name == "" || len(in.Name) > 60 {
+		return fail(400, "badName", "Name must be 1 to 60 characters.")
+	}
+	if in.Lang != "tr" {
+		in.Lang = "en"
+	}
+	var events []string
+	for _, e := range in.Events {
+		if notify.ValidEvent(e) && !slices.Contains(events, e) {
+			events = append(events, e)
+		}
+	}
+	if len(events) == 0 {
+		return fail(400, "noEvents", "Choose at least one event.")
+	}
+	servers := []string{}
+	for _, sid := range in.Servers {
+		if _, ok := s.App.Store.Server(sid); ok && !slices.Contains(servers, sid) {
+			servers = append(servers, sid)
+		}
+	}
+	var sealed string
+	if in.URL != "" || id == "" {
+		if !notify.ValidURL(in.URL) {
+			return fail(400, "badUrl", "Paste a Discord webhook URL (Server settings > Integrations > Webhooks > Copy webhook URL).")
+		}
+		var err error
+		if sealed, err = secret.Seal(strings.TrimSpace(in.URL)); err != nil {
+			return err
+		}
+	}
+	var saved store.Webhook
+	err := s.App.Store.Update(func(st *store.State) error {
+		if id == "" {
+			if len(st.Webhooks) >= 20 {
+				return fail(400, "tooMany", "At most 20 webhooks.")
+			}
+			saved = store.Webhook{ID: store.NewID(), Name: in.Name, URL: sealed, Lang: in.Lang, Events: events, Servers: servers, Enabled: in.Enabled}
+			st.Webhooks = append(st.Webhooks, saved)
+			return nil
+		}
+		for i := range st.Webhooks {
+			if st.Webhooks[i].ID == id {
+				h := &st.Webhooks[i]
+				h.Name, h.Lang, h.Events, h.Servers, h.Enabled = in.Name, in.Lang, events, servers, in.Enabled
+				if sealed != "" {
+					h.URL, h.LastError = sealed, ""
+				}
+				saved = *h
+				return nil
+			}
+		}
+		return store.ErrNotFound
+	})
+	if err != nil {
+		return err
+	}
+	s.App.Store.Audit(u.Username, "webhook.save", saved.Name, map[string]string{"events": strings.Join(events, ",")})
+	writeJSON(w, 200, webhookView(saved))
+	return nil
+}
+
+func (s *Server) deleteWebhook(w http.ResponseWriter, r *http.Request, u ctxUser) error {
+	id := r.PathValue("wid")
+	var name string
+	if err := s.App.Store.Update(func(st *store.State) error {
+		for i, h := range st.Webhooks {
+			if h.ID == id {
+				name = h.Name
+				st.Webhooks = append(st.Webhooks[:i], st.Webhooks[i+1:]...)
+				return nil
+			}
+		}
+		return store.ErrNotFound
+	}); err != nil {
+		return err
+	}
+	s.App.Store.Audit(u.Username, "webhook.delete", name, nil)
+	writeJSON(w, 200, map[string]bool{"ok": true})
+	return nil
+}
+
+func (s *Server) testWebhook(w http.ResponseWriter, r *http.Request, u ctxUser) error {
+	id := r.PathValue("wid")
+	var hook store.Webhook
+	var panel string
+	found := false
+	s.App.Store.Read(func(st *store.State) {
+		panel = st.Settings.PanelName
+		for _, h := range st.Webhooks {
+			if h.ID == id {
+				hook, found = h, true
+			}
+		}
+	})
+	if !found {
+		return errNotFound
+	}
+	if err := s.App.SendWebhook(r.Context(), hook, notify.Event{Kind: "test", At: time.Now()}, panel); err != nil {
+		return badRequest(err)
+	}
+	writeJSON(w, 200, map[string]bool{"ok": true})
 	return nil
 }

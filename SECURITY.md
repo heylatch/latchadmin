@@ -29,6 +29,7 @@ All outgoing traffic goes through [`internal/netx`](internal/netx/netx.go), whic
 | `api.mafiahub.dev` | Game server releases |
 | `*.r2.cloudflarestorage.com` | Release zips and Latch packages (signed, short-lived links) |
 | `api.github.com`, `github.com`, `*.githubusercontent.com` | LatchAdmin releases |
+| `discord.com`, `discordapp.com` (and `canary.`/`ptb.`) | Discord webhooks you add for notifications; only `/api/webhooks/` URLs are accepted, and messages carry the event and server name only |
 
 The only other connection is a health check to `127.0.0.1:<game port>`.
 

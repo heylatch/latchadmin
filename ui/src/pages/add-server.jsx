@@ -164,13 +164,23 @@ function InstallForm() {
               <Field>
                 <FieldLabel htmlFor="license">{t("add.license")}</FieldLabel>
                 <Input id="license" type="password" autoComplete="off" value={form.license} onChange={(e) => set("license", e.target.value)} placeholder="LT-…" disabled={running} />
-                <FieldDescription>{t("add.licenseHelp")}</FieldDescription>
+                <FieldDescription>
+                  {t("add.licenseHelp")}{" "}
+                  <a href="https://heylatch.app/app/keys" target="_blank" rel="noreferrer" className="underline underline-offset-4">
+                    heylatch.app/app/keys
+                  </a>
+                </FieldDescription>
               </Field>
             </div>
             <Field>
               <FieldLabel htmlFor="token">{t("add.token")}</FieldLabel>
               <Input id="token" type="password" autoComplete="off" value={form.token} onChange={(e) => set("token", e.target.value)} disabled={running} spellCheck={false} />
-              <FieldDescription>{t("add.tokenHelp", { port: form.port || 27015, mod: game?.slug ?? "" })}</FieldDescription>
+              <FieldDescription>
+                {t("add.tokenHelp", { port: form.port || 27015, mod: game?.slug ?? "" })}{" "}
+                <a href="https://mafiahub.dev/" target="_blank" rel="noreferrer" className="underline underline-offset-4">
+                  mafiahub.dev
+                </a>
+              </FieldDescription>
             </Field>
             <Field orientation="horizontal">
               <Checkbox id="examples" checked={form.examples} onCheckedChange={(v) => set("examples", v === true)} disabled={running} />

@@ -17,6 +17,7 @@ import (
 	"github.com/heylatch/latchadmin/internal/auth"
 	"github.com/heylatch/latchadmin/internal/games"
 	"github.com/heylatch/latchadmin/internal/metrics"
+	"github.com/heylatch/latchadmin/internal/notify"
 	"github.com/heylatch/latchadmin/internal/release"
 	"github.com/heylatch/latchadmin/internal/secret"
 	"github.com/heylatch/latchadmin/internal/store"
@@ -43,6 +44,7 @@ type App struct {
 	pendingHash []byte
 	selfMu      sync.Mutex      // one self-update prepare/apply at a time
 	installing  map[string]bool // folders an install job is writing to
+	notes       chan notify.Event
 	// Restart is called after a self-update is swapped in. Set by main.
 	Restart func(exe string)
 }
@@ -58,7 +60,7 @@ func New(dataDir string) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	a := &App{Store: st, DataDir: dataDir, procs: map[string]*supervisor.Proc{}, Jobs: newJobs(), Logf: log.Printf, Metrics: metrics.Open(filepath.Join(dataDir, "metrics.json.gz"))}
+	a := &App{Store: st, DataDir: dataDir, procs: map[string]*supervisor.Proc{}, Jobs: newJobs(), Logf: log.Printf, Metrics: metrics.Open(filepath.Join(dataDir, "metrics.json.gz")), notes: make(chan notify.Event, 200)}
 	return a, nil
 }
 
@@ -135,6 +137,7 @@ func (a *App) onState(id string, s supervisor.State) {
 		a.Metrics.AddEvent(id, "start", "")
 	case supervisor.Running:
 		a.Metrics.AddEvent(id, "ready", "")
+		a.notifyServer(id, "server.ready", nil)
 		// The command list (for console suggestions) and the player count, once the console answers.
 		go func() {
 			p := a.Proc(id)
@@ -144,8 +147,21 @@ func (a *App) onState(id string, s supervisor.State) {
 		}()
 	case supervisor.Stopped:
 		a.Metrics.AddEvent(id, "stop", "")
+		// Not for the stop half of a restart, an update or the panel shutting down.
+		a.mu.Lock()
+		quiet := a.shuttingDown
+		a.mu.Unlock()
+		if !quiet && !a.Proc(id).Restarting() && a.Jobs.Active(id) == nil {
+			a.notifyServer(id, "server.stop", nil)
+		}
 	case supervisor.Crashed:
-		a.Metrics.AddEvent(id, "crash", a.Proc(id).Status().LastExit)
+		st := a.Proc(id).Status()
+		a.Metrics.AddEvent(id, "crash", st.LastExit)
+		restart := "@noRestart"
+		if !st.NextStart.IsZero() {
+			restart = "@restartIn|in=" + time.Until(st.NextStart).Round(time.Second).String()
+		}
+		a.notifyServer(id, "server.crash", map[string]string{"exit": st.LastExit, "restart": restart})
 	}
 	a.mu.Lock()
 	quiet := a.shuttingDown
@@ -158,6 +174,13 @@ func (a *App) onState(id string, s supervisor.State) {
 		_ = a.Store.UpdateServer(id, func(sv *store.Server) error { sv.WasRunning = true; return nil })
 	case supervisor.Stopped:
 		_ = a.Store.UpdateServer(id, func(sv *store.Server) error { sv.WasRunning = false; return nil })
+	}
+}
+
+// notifyServer sends a server event, with the server's current name.
+func (a *App) notifyServer(id, kind string, vars map[string]string) {
+	if sv, ok := a.Store.Server(id); ok {
+		a.Notify(notify.Event{Kind: kind, ServerID: id, Server: sv.Name, Vars: vars})
 	}
 }
 
@@ -260,10 +283,12 @@ func (a *App) UpdateGame(id, version, user string) (*Job, error) {
 		if err != nil {
 			p.Panelf("Update failed: %v", err)
 			a.Store.Audit(user, "game.updateFailed", sv.Name, map[string]string{"error": err.Error()})
+			a.Notify(notify.Event{Kind: "game.failed", ServerID: id, Server: sv.Name, Vars: map[string]string{"error": err.Error()}})
 			return nil, err
 		}
 		_ = a.Store.UpdateServer(id, func(s *store.Server) error { s.Version = v; return nil })
 		a.Store.Audit(user, "game.update", sv.Name, map[string]string{"from": sv.Version, "to": v, "backup": backup.Name})
+		a.Notify(notify.Event{Kind: "game.updated", ServerID: id, Server: sv.Name, Vars: map[string]string{"version": v}})
 		p.Panelf("Updated to %s. Backup: backups/%s", v, backup.Name)
 		_ = p.SetUpdating(false)
 		if wasUp {
@@ -317,6 +342,7 @@ func (a *App) Run(ctx context.Context) {
 	go a.every(ctx, 30*time.Minute, 2*time.Minute, a.autoScripts)
 	go a.every(ctx, 30*time.Second, 30*time.Second, a.schedule)
 	go a.every(ctx, metrics.Interval, metrics.Interval, a.collect)
+	go a.deliverLoop(ctx)
 	go a.every(ctx, 5*time.Minute, 5*time.Minute, func(context.Context) { _ = a.Metrics.Save() })
 	<-ctx.Done()
 }
@@ -366,6 +392,7 @@ func (a *App) schedule(ctx context.Context) {
 			continue
 		}
 		p.Panelf("Scheduled restart")
+		a.Notify(notify.Event{Kind: "server.restart", ServerID: sv.ID, Server: sv.Name, Vars: map[string]string{"time": hm}})
 		if a.pendingSelfUpdate() != "" {
 			// Every server comes back after the panel restarts.
 			a.applySelfUpdate(ctx)

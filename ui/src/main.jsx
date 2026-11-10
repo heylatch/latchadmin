@@ -17,6 +17,7 @@ import AddServerPage from "@/pages/add-server"
 import LatchPage from "@/pages/latch"
 import OverviewPage from "@/pages/overview"
 import ServerPage from "@/pages/server/server"
+import NotificationsPage from "@/pages/notifications"
 import SettingsPage from "@/pages/settings"
 import StatisticsPage from "@/pages/statistics"
 import UsersPage from "@/pages/users"
@@ -40,6 +41,7 @@ function App() {
         <Route path="statistics" element={<StatisticsPage />} />
         <Route path="latch" element={<LatchPage />} />
         <Route path="activity" element={<ActivityPage />} />
+        <Route path="notifications" element={<NotificationsPage />} />
         <Route path="users" element={<UsersPage />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />

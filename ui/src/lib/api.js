@@ -52,6 +52,11 @@ export const api = {
   totpDisable: (password) => del("/me/totp", { Password: password }),
 
   permissions: () => get("/permissions"),
+  webhooks: () => get("/webhooks"),
+  createWebhook: (b) => post("/webhooks", b),
+  updateWebhook: (w, b) => patch(`/webhooks/${id(w)}`, b),
+  deleteWebhook: (w) => del(`/webhooks/${id(w)}`),
+  testWebhook: (w) => post(`/webhooks/${id(w)}/test`),
   users: () => get("/users"),
   createUser: (b) => post("/users", b),
   updateUser: (u, b) => patch(`/users/${id(u)}`, b),

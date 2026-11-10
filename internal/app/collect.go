@@ -34,6 +34,7 @@ func (a *App) collect(_ context.Context) {
 			smp.Up, smp.CPU, smp.Mem = true, float32(st.CPU), st.MemBytes
 			if st.Players != nil {
 				smp.Players = int16(*st.Players)
+				a.recordPlayers(sv, *st.Players)
 			}
 		}
 		a.Metrics.Add(sv.ID, smp)

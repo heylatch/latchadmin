@@ -12,6 +12,7 @@ func TestAllowed(t *testing.T) {
 		"https://abc123.r2.cloudflarestorage.com/bucket/x.zip?sig=1",
 		"https://github.com/heylatch/latchadmin/releases/download/v1.0.0/SHA256SUMS",
 		"https://objects.githubusercontent.com/x",
+		"https://discord.com/api/webhooks/1/abc",
 	}
 	bad := []string{
 		"http://api.heylatch.app/public/v1/me",           // not HTTPS

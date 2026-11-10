@@ -68,7 +68,12 @@ export default function ScriptsTab({ server }) {
           <KeyRoundIcon aria-hidden="true" />
           <AlertTitle>{t("scripts.noLicenseTitle")}</AlertTitle>
           <AlertDescription className="flex flex-wrap items-center justify-between gap-3">
-            <span>{t("scripts.noLicenseText")}</span>
+            <span>
+              {t("scripts.noLicenseText")}{" "}
+              <a href="https://heylatch.app/app/keys" target="_blank" rel="noreferrer" className="underline underline-offset-4">
+                heylatch.app/app/keys
+              </a>
+            </span>
             <Button size="sm" variant="outline" asChild>
               <Link to={`/servers/${server.id}/config`}>{t("scripts.addLicense")}</Link>
             </Button>

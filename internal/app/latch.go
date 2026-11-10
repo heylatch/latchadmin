@@ -10,6 +10,7 @@ import (
 
 	"github.com/heylatch/latchadmin/internal/buildinfo"
 	"github.com/heylatch/latchadmin/internal/latch"
+	"github.com/heylatch/latchadmin/internal/notify"
 	"github.com/heylatch/latchadmin/internal/secret"
 	"github.com/heylatch/latchadmin/internal/store"
 	"github.com/heylatch/latchadmin/internal/supervisor"
@@ -155,7 +156,11 @@ func (a *App) key() string {
 
 func (a *App) keyFailed(err error) {
 	if errors.Is(err, latch.ErrUnauthorized) {
-		_ = a.Store.Update(func(st *store.State) error { st.Latch.Disconnected = true; return nil })
+		was := false
+		_ = a.Store.Update(func(st *store.State) error { was, st.Latch.Disconnected = st.Latch.Disconnected, true; return nil })
+		if !was {
+			a.Notify(notify.Event{Kind: "latch.lost"})
+		}
 	}
 }
 
@@ -366,7 +371,15 @@ func (a *App) autoScripts(ctx context.Context) {
 			if pol == store.ScriptManual || !ok || !it.Usable() || compare(*it.Script.LatestVersion, cur.Latch.Version) <= 0 {
 				continue
 			}
-			if _, err := a.InstallScript(ctx, sv.ID, it.Script.ID, "auto-update", pol == store.ScriptNow); err != nil {
+			res, err := a.InstallScript(ctx, sv.ID, it.Script.ID, "auto-update", pol == store.ScriptNow)
+			if err == nil && !res.UpToDate {
+				applies := "@appliesRestart"
+				if pol == store.ScriptNow {
+					applies = "@appliesNow"
+				}
+				a.Notify(notify.Event{Kind: "script.updated", ServerID: sv.ID, Server: sv.Name, Vars: map[string]string{"script": it.Script.Name, "version": res.Version, "applies": applies}})
+			}
+			if err != nil {
 				a.Proc(sv.ID).Panelf("Automatic update of %s failed: %v", it.Script.Slug, err)
 			}
 		}

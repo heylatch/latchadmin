@@ -64,6 +64,7 @@ func (a *App) checkVersions(ctx context.Context) {
 		a.versions.mu.Unlock()
 	}
 	a.considerSelfUpdate(ctx)
+	a.notifyVersions()
 }
 
 func (a *App) versionError(err error) {

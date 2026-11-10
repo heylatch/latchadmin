@@ -9,6 +9,7 @@ A web panel for running MafiaHub game servers: Arcane MP, Kingdoms Connected and
 - **Game updates:** one click, with a backup first and a one-click restore.
 - **Latch scripts:** link your [Latch](https://heylatch.app) account, then install and update the scripts you've bought, by hand or automatically.
 - **Self-update:** LatchAdmin updates itself from signed GitHub releases.
+- **Discord notifications:** crashes, restarts, updates, new player records and more, per webhook and per server.
 - **Statistics:** players, CPU and memory per server and for the machine, uptime and crashes, over 1 hour to 7 days.
 - **Users:** per-user permissions in groups and per-server access, generated passwords, two-factor sign-in and an activity log.
 
@@ -81,7 +82,7 @@ On the **Latch** page, choose **Link with Latch** and approve the code on heylat
 
 LatchAdmin is open source so you can check exactly what it does. In short:
 
-- It only connects to `api.heylatch.app`, `api.mafiahub.dev`, `github.com`/`api.github.com` and their download hosts. The list is in [`internal/netx/netx.go`](internal/netx/netx.go) and is enforced on every request and redirect.
+- It only connects to `api.heylatch.app`, `api.mafiahub.dev`, `github.com`/`api.github.com`, their download hosts, and the Discord webhooks you add. The list is in [`internal/netx/netx.go`](internal/netx/netx.go) and is enforced on every request and redirect.
 - **Latch can't reach your panel or your servers.** The panel calls Latch, never the other way round, and nothing Latch answers is run.
 - Updates to LatchAdmin are installed only when their Ed25519 signature checks out against the key built into the binary.
 - What the panel reports to Latch (only while an account is linked) is listed in [docs/TELEMETRY.md](docs/TELEMETRY.md), and the panel shows the exact report on its Latch page.
