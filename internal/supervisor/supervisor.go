@@ -66,6 +66,15 @@ type Status struct {
 	Health    *Health   `json:"health,omitempty"`
 	MemBytes  uint64    `json:"memBytes,omitempty"`
 	CPU       float64   `json:"cpu,omitempty"` // percent of one core, averaged since the last sample
+	// Players and MaxPlayers come from the console "status" command; nil until read.
+	Players    *int `json:"players,omitempty"`
+	MaxPlayers int  `json:"maxPlayers,omitempty"`
+}
+
+// Command is a console command the server listed in "help".
+type Command struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
 }
 
 // Proc is one game server.
@@ -86,6 +95,10 @@ type Proc struct {
 	restartT *time.Timer
 	backoff  time.Duration
 	cpuPrev  cpuSample
+
+	cmu      sync.Mutex // one quiet query at a time
+	capt     *capture
+	commands []Command
 
 	lmu    sync.Mutex
 	lines  []Line
@@ -228,6 +241,7 @@ func (p *Proc) exited(err error, autoRestart bool) {
 	p.cmd, p.stdin, p.killer = nil, nil, nil
 	p.st.PID = 0
 	p.st.Health = nil
+	p.st.Players = nil
 	p.st.LastExit = fmt.Sprintf("exit code %d", code)
 	p.mu.Unlock()
 
@@ -338,6 +352,9 @@ func (p *Proc) pump(r io.Reader, src string) {
 				p.setState(Running)
 			}
 		}
+		if p.captured(text) {
+			continue
+		}
 		p.emit(Line{Text: text, Src: src})
 	}
 }
@@ -428,8 +445,9 @@ func (p *Proc) healthLoop(port int, done <-chan struct{}) {
 		h := probe(port)
 		p.mu.Lock()
 		p.st.Health = &h
-		mem, cpu := p.sample()
-		p.st.MemBytes, p.st.CPU = mem, cpu
+		if h.MaxPlayers > 0 && p.st.MaxPlayers == 0 {
+			p.st.MaxPlayers = h.MaxPlayers
+		}
 		promote := h.OK && p.st.State == Starting
 		if promote {
 			p.st.ReadyAt = time.Now()

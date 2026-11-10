@@ -60,7 +60,7 @@ func validName(n string) error {
 }
 
 // InstallServer downloads a game into an empty folder and adds the server when done.
-func (a *App) InstallServer(in NewServer, user string) (*Job, error) {
+func (a *App) InstallServer(in NewServer, user string, onCreated func(id string)) (*Job, error) {
 	g, ok := games.ByID(in.Game)
 	if !ok {
 		return nil, errors.New("unknown game")
@@ -100,6 +100,9 @@ func (a *App) InstallServer(in NewServer, user string) (*Job, error) {
 			return nil, err
 		}
 		a.Store.Audit(user, "server.install", sv.Name, map[string]string{"game": g.ID, "version": v, "dir": dir})
+		if onCreated != nil {
+			onCreated(sv.ID)
+		}
 		return map[string]string{"serverId": sv.ID, "version": v}, nil
 	})
 }

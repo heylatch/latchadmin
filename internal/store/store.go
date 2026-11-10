@@ -11,23 +11,21 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
-)
 
-type Role string
-
-const (
-	RoleOwner  Role = "owner"  // everything, including users, the Latch link and panel updates
-	RoleAdmin  Role = "admin"  // runs servers, edits config, installs updates
-	RoleViewer Role = "viewer" // reads status and the console
+	"github.com/heylatch/latchadmin/internal/perms"
 )
 
 type User struct {
-	ID           string    `json:"id"`
-	Username     string    `json:"username"`
-	PasswordHash string    `json:"passwordHash"`
-	Role         Role      `json:"role"`
-	TOTPSecret   string    `json:"totpSecret,omitempty"` // sealed; empty when 2FA is off
-	CreatedAt    time.Time `json:"createdAt"`
+	ID           string   `json:"id"`
+	Username     string   `json:"username"`
+	PasswordHash string   `json:"passwordHash"`
+	Permissions  []string `json:"permissions"`
+	// AllServers grants access to every server, including ones added later; otherwise only those in Servers.
+	AllServers bool      `json:"allServers"`
+	Servers    []string  `json:"servers"`
+	Role       string    `json:"role,omitempty"`       // LatchAdmin 0.1 only; converted to Permissions on load
+	TOTPSecret string    `json:"totpSecret,omitempty"` // sealed; empty when 2FA is off
+	CreatedAt  time.Time `json:"createdAt"`
 }
 
 type Session struct {
@@ -120,6 +118,13 @@ func Open(dataDir string) (*Store, error) {
 	}
 	if err := json.Unmarshal(b, &s.st); err != nil {
 		return nil, errors.New("latchadmin.json is damaged: " + err.Error())
+	}
+	for i, u := range s.st.Users {
+		if u.Permissions == nil {
+			s.st.Users[i].Permissions = perms.FromRole(u.Role)
+			s.st.Users[i].Role = ""
+			s.st.Users[i].AllServers = true
+		}
 	}
 	return s, nil
 }
@@ -240,4 +245,17 @@ func splitLines(b []byte) [][]byte {
 		out = append(out, b[start:])
 	}
 	return out
+}
+
+// CanServer reports whether a user may see and act on a server.
+func (u User) CanServer(id string) bool {
+	if u.AllServers || perms.Has(u.Permissions, perms.All) {
+		return true
+	}
+	for _, x := range u.Servers {
+		if x == id {
+			return true
+		}
+	}
+	return false
 }

@@ -16,6 +16,7 @@ import (
 
 	"github.com/heylatch/latchadmin/internal/app"
 	"github.com/heylatch/latchadmin/internal/auth"
+	"github.com/heylatch/latchadmin/internal/perms"
 	"github.com/heylatch/latchadmin/internal/store"
 )
 
@@ -170,8 +171,6 @@ func (s *Server) endSessions(userID, exceptHash string) {
 
 // ---------- middleware ----------
 
-var rank = map[store.Role]int{store.RoleViewer: 1, store.RoleAdmin: 2, store.RoleOwner: 3}
-
 type handler func(w http.ResponseWriter, r *http.Request, u ctxUser) error
 
 // sameOrigin is the CSRF check for state-changing requests.
@@ -186,22 +185,33 @@ func sameOrigin(r *http.Request) bool {
 	return true
 }
 
-// api wraps a handler with the CSRF check and, when min is set, a session with at least that role.
-func (s *Server) api(min store.Role, h handler) http.HandlerFunc {
+// Access levels for api(): public needs no session, signedIn any session, anything else is a permission.
+const (
+	public   = "-"
+	signedIn = ""
+)
+
+// api wraps a handler with the CSRF check and, unless public, a session holding perm.
+func (s *Server) api(perm string, h handler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead && !sameOrigin(r) {
 			writeErr(w, fail(403, "csrf", "Request blocked: it didn't come from the panel."))
 			return
 		}
 		var u ctxUser
-		if min != "" {
+		if perm != public {
 			var ok bool
 			if u, ok = s.user(r); !ok {
 				writeErr(w, errUnauthorized)
 				return
 			}
-			if rank[u.Role] < rank[min] {
+			if perm != signedIn && !perms.Has(u.Permissions, perm) {
 				writeErr(w, errForbidden)
+				return
+			}
+			// Per-server access: a server the user can't access answers as if it didn't exist.
+			if id := r.PathValue("id"); id != "" && strings.HasPrefix(r.URL.Path, "/api/servers/") && !u.CanServer(id) {
+				writeErr(w, errNotFound)
 				return
 			}
 		}

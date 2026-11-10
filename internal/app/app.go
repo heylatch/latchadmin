@@ -16,6 +16,7 @@ import (
 
 	"github.com/heylatch/latchadmin/internal/auth"
 	"github.com/heylatch/latchadmin/internal/games"
+	"github.com/heylatch/latchadmin/internal/metrics"
 	"github.com/heylatch/latchadmin/internal/release"
 	"github.com/heylatch/latchadmin/internal/secret"
 	"github.com/heylatch/latchadmin/internal/store"
@@ -34,6 +35,8 @@ type App struct {
 	shuttingDown bool
 
 	versions versionCache
+	Metrics  *metrics.Store
+	host     metrics.HostSampler
 	link     *pendingLink
 	// pendingSelf is a verified panel update waiting for a quiet moment (no server running or a scheduled restart).
 	pendingSelf string
@@ -52,7 +55,7 @@ func New(dataDir string) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	a := &App{Store: st, DataDir: dataDir, procs: map[string]*supervisor.Proc{}, Jobs: newJobs(), Logf: log.Printf}
+	a := &App{Store: st, DataDir: dataDir, procs: map[string]*supervisor.Proc{}, Jobs: newJobs(), Logf: log.Printf, Metrics: metrics.Open(filepath.Join(dataDir, "metrics.json.gz"))}
 	return a, nil
 }
 
@@ -124,6 +127,23 @@ func buildEnv(sv store.Server) []string {
 }
 
 func (a *App) onState(id string, s supervisor.State) {
+	switch s {
+	case supervisor.Starting:
+		a.Metrics.AddEvent(id, "start", "")
+	case supervisor.Running:
+		a.Metrics.AddEvent(id, "ready", "")
+		// The command list (for console suggestions) and the player count, once the console answers.
+		go func() {
+			p := a.Proc(id)
+			time.Sleep(2 * time.Second)
+			p.RefreshCommands()
+			p.RefreshPlayers()
+		}()
+	case supervisor.Stopped:
+		a.Metrics.AddEvent(id, "stop", "")
+	case supervisor.Crashed:
+		a.Metrics.AddEvent(id, "crash", a.Proc(id).Status().LastExit)
+	}
 	a.mu.Lock()
 	quiet := a.shuttingDown
 	a.mu.Unlock()
@@ -183,6 +203,7 @@ func (a *App) Shutdown() {
 		go func(p *supervisor.Proc) { defer wg.Done(); _ = p.Stop() }(p)
 	}
 	wg.Wait()
+	_ = a.Metrics.Save()
 }
 
 // ---------- Servers ----------
@@ -198,6 +219,7 @@ func (a *App) DeleteServer(id string) error {
 	_ = p.Stop()
 	a.mu.Lock()
 	delete(a.procs, id)
+	a.Metrics.Forget(id)
 	a.mu.Unlock()
 	return a.Store.Update(func(st *store.State) error {
 		for i, sv := range st.Servers {
@@ -289,6 +311,8 @@ func (a *App) Run(ctx context.Context) {
 	go a.every(ctx, 15*time.Minute, 20*time.Second, a.report)
 	go a.every(ctx, 30*time.Minute, 2*time.Minute, a.autoScripts)
 	go a.every(ctx, 30*time.Second, 30*time.Second, a.schedule)
+	go a.every(ctx, metrics.Interval, metrics.Interval, a.collect)
+	go a.every(ctx, 10*time.Minute, 10*time.Minute, func(context.Context) { _ = a.Metrics.Save() })
 	<-ctx.Done()
 }
 

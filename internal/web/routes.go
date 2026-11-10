@@ -22,6 +22,8 @@ import (
 	"github.com/heylatch/latchadmin/internal/auth"
 	"github.com/heylatch/latchadmin/internal/buildinfo"
 	"github.com/heylatch/latchadmin/internal/games"
+	"github.com/heylatch/latchadmin/internal/metrics"
+	"github.com/heylatch/latchadmin/internal/perms"
 	"github.com/heylatch/latchadmin/internal/release"
 	"github.com/heylatch/latchadmin/internal/resources"
 	"github.com/heylatch/latchadmin/internal/secret"
@@ -29,72 +31,69 @@ import (
 	"github.com/heylatch/latchadmin/internal/supervisor"
 )
 
-const (
-	viewer = store.RoleViewer
-	admin  = store.RoleAdmin
-	owner  = store.RoleOwner
-)
-
 func (s *Server) routes() {
 	m := s.mux
 	// Session and setup
-	m.HandleFunc("GET /api/session", s.api("", s.session))
-	m.HandleFunc("POST /api/setup", s.api("", s.setup))
-	m.HandleFunc("POST /api/login", s.api("", s.login))
-	m.HandleFunc("POST /api/logout", s.api(viewer, s.logout))
-	m.HandleFunc("POST /api/me/password", s.api(viewer, s.changePassword))
-	m.HandleFunc("POST /api/me/totp/setup", s.api(viewer, s.totpSetup))
-	m.HandleFunc("POST /api/me/totp", s.api(viewer, s.totpEnable))
-	m.HandleFunc("DELETE /api/me/totp", s.api(viewer, s.totpDisable))
+	m.HandleFunc("GET /api/session", s.api(public, s.session))
+	m.HandleFunc("POST /api/setup", s.api(public, s.setup))
+	m.HandleFunc("POST /api/login", s.api(public, s.login))
+	m.HandleFunc("POST /api/logout", s.api(signedIn, s.logout))
+	m.HandleFunc("POST /api/me/password", s.api(signedIn, s.changePassword))
+	m.HandleFunc("POST /api/me/totp/setup", s.api(signedIn, s.totpSetup))
+	m.HandleFunc("POST /api/me/totp", s.api(signedIn, s.totpEnable))
+	m.HandleFunc("DELETE /api/me/totp", s.api(signedIn, s.totpDisable))
 	// Users
-	m.HandleFunc("GET /api/users", s.api(owner, s.listUsers))
-	m.HandleFunc("POST /api/users", s.api(owner, s.createUser))
-	m.HandleFunc("PATCH /api/users/{id}", s.api(owner, s.updateUser))
-	m.HandleFunc("DELETE /api/users/{id}", s.api(owner, s.deleteUser))
+	m.HandleFunc("GET /api/permissions", s.api(signedIn, s.permissionList))
+	m.HandleFunc("GET /api/users", s.api("panel.users", s.listUsers))
+	m.HandleFunc("POST /api/users", s.api("panel.users", s.createUser))
+	m.HandleFunc("PATCH /api/users/{id}", s.api("panel.users", s.updateUser))
+	m.HandleFunc("DELETE /api/users/{id}", s.api("panel.users", s.deleteUser))
 	// Panel
-	m.HandleFunc("GET /api/panel", s.api(viewer, s.panel))
-	m.HandleFunc("PATCH /api/panel/settings", s.api(owner, s.panelSettings))
-	m.HandleFunc("POST /api/panel/check", s.api(admin, s.panelCheck))
-	m.HandleFunc("POST /api/panel/update", s.api(owner, s.panelUpdate))
-	m.HandleFunc("GET /api/audit", s.api(admin, s.audit))
-	m.HandleFunc("GET /api/browse", s.api(owner, s.browse))
+	m.HandleFunc("GET /api/panel", s.api(signedIn, s.panel))
+	m.HandleFunc("PATCH /api/panel/settings", s.api("panel.settings", s.panelSettings))
+	m.HandleFunc("POST /api/panel/check", s.api(signedIn, s.panelCheck))
+	m.HandleFunc("POST /api/panel/update", s.api("panel.update", s.panelUpdate))
+	m.HandleFunc("GET /api/audit", s.api("panel.activity", s.audit))
+	m.HandleFunc("GET /api/browse", s.api("server.add", s.browse))
+	m.HandleFunc("GET /api/stats", s.api(signedIn, s.stats))
 	// Servers
-	m.HandleFunc("GET /api/games", s.api(viewer, s.games))
-	m.HandleFunc("GET /api/servers", s.api(viewer, s.listServers))
-	m.HandleFunc("POST /api/servers", s.api(owner, s.installServer))
-	m.HandleFunc("POST /api/servers/import/preview", s.api(owner, s.importPreview))
-	m.HandleFunc("POST /api/servers/import", s.api(owner, s.importServer))
-	m.HandleFunc("GET /api/servers/{id}", s.api(viewer, s.getServer))
-	m.HandleFunc("PATCH /api/servers/{id}", s.api(admin, s.patchServer))
-	m.HandleFunc("DELETE /api/servers/{id}", s.api(owner, s.deleteServer))
-	m.HandleFunc("POST /api/servers/{id}/{action}", s.api(admin, s.serverAction))
-	m.HandleFunc("POST /api/servers/{id}/command", s.api(admin, s.command))
-	m.HandleFunc("GET /api/servers/{id}/console", s.api(viewer, s.console))
-	m.HandleFunc("GET /api/servers/{id}/logs", s.api(viewer, s.logFiles))
-	m.HandleFunc("GET /api/servers/{id}/logs/{file}", s.api(viewer, s.logFile))
-	m.HandleFunc("GET /api/servers/{id}/resources", s.api(viewer, s.listResources))
-	m.HandleFunc("POST /api/servers/{id}/resources", s.api(admin, s.uploadResource))
-	m.HandleFunc("POST /api/servers/{id}/resources/{folder}/{action}", s.api(admin, s.resourceAction))
-	m.HandleFunc("DELETE /api/servers/{id}/resources/{folder}", s.api(admin, s.removeResource))
-	m.HandleFunc("GET /api/servers/{id}/config", s.api(admin, s.getConfig))
-	m.HandleFunc("PUT /api/servers/{id}/config", s.api(admin, s.putConfig))
-	m.HandleFunc("GET /api/servers/{id}/env", s.api(admin, s.getEnv))
-	m.HandleFunc("PUT /api/servers/{id}/env", s.api(admin, s.putEnv))
-	m.HandleFunc("GET /api/servers/{id}/data", s.api(admin, s.listData))
-	m.HandleFunc("GET /api/servers/{id}/data/{file}", s.api(admin, s.getData))
-	m.HandleFunc("PUT /api/servers/{id}/data/{file}", s.api(admin, s.putData))
-	m.HandleFunc("GET /api/servers/{id}/backups", s.api(admin, s.backups))
-	m.HandleFunc("POST /api/servers/{id}/backups/{name}/restore", s.api(admin, s.restore))
-	m.HandleFunc("GET /api/jobs/{id}", s.api(viewer, s.job))
+	m.HandleFunc("GET /api/games", s.api(signedIn, s.games))
+	m.HandleFunc("GET /api/servers", s.api(signedIn, s.listServers))
+	m.HandleFunc("POST /api/servers", s.api("server.add", s.installServer))
+	m.HandleFunc("POST /api/servers/import/preview", s.api("server.add", s.importPreview))
+	m.HandleFunc("POST /api/servers/import", s.api("server.add", s.importServer))
+	m.HandleFunc("GET /api/servers/{id}", s.api(signedIn, s.getServer))
+	m.HandleFunc("PATCH /api/servers/{id}", s.api("server.settings", s.patchServer))
+	m.HandleFunc("DELETE /api/servers/{id}", s.api("server.remove", s.deleteServer))
+	m.HandleFunc("POST /api/servers/{id}/{action}", s.api(signedIn, s.serverAction)) // permission checked per action
+	m.HandleFunc("POST /api/servers/{id}/command", s.api("console.write", s.command))
+	m.HandleFunc("GET /api/servers/{id}/console", s.api("console.view", s.console))
+	m.HandleFunc("GET /api/servers/{id}/logs", s.api("console.view", s.logFiles))
+	m.HandleFunc("GET /api/servers/{id}/logs/{file}", s.api("console.view", s.logFile))
+	m.HandleFunc("GET /api/servers/{id}/stats", s.api(signedIn, s.serverStats))
+	m.HandleFunc("GET /api/servers/{id}/resources", s.api(signedIn, s.listResources))
+	m.HandleFunc("POST /api/servers/{id}/resources", s.api("resources.manage", s.uploadResource))
+	m.HandleFunc("POST /api/servers/{id}/resources/{folder}/{action}", s.api("resources.manage", s.resourceAction))
+	m.HandleFunc("DELETE /api/servers/{id}/resources/{folder}", s.api("resources.manage", s.removeResource))
+	m.HandleFunc("GET /api/servers/{id}/config", s.api("config.view", s.getConfig))
+	m.HandleFunc("PUT /api/servers/{id}/config", s.api("config.edit", s.putConfig))
+	m.HandleFunc("GET /api/servers/{id}/env", s.api("config.view", s.getEnv))
+	m.HandleFunc("PUT /api/servers/{id}/env", s.api("config.edit", s.putEnv))
+	m.HandleFunc("GET /api/servers/{id}/data", s.api("config.view", s.listData))
+	m.HandleFunc("GET /api/servers/{id}/data/{file}", s.api("config.view", s.getData))
+	m.HandleFunc("PUT /api/servers/{id}/data/{file}", s.api("config.edit", s.putData))
+	m.HandleFunc("GET /api/servers/{id}/backups", s.api("updates.game", s.backups))
+	m.HandleFunc("POST /api/servers/{id}/backups/{name}/restore", s.api("updates.game", s.restore))
+	m.HandleFunc("GET /api/jobs/{id}", s.api(signedIn, s.job))
 	// Latch
-	m.HandleFunc("GET /api/latch", s.api(viewer, s.latchStatus))
-	m.HandleFunc("POST /api/latch/link", s.api(owner, s.latchLink))
-	m.HandleFunc("DELETE /api/latch/link", s.api(owner, s.latchCancelLink))
-	m.HandleFunc("POST /api/latch/key", s.api(owner, s.latchKey))
-	m.HandleFunc("DELETE /api/latch", s.api(owner, s.latchUnlink))
-	m.HandleFunc("GET /api/latch/library", s.api(viewer, s.latchLibrary))
-	m.HandleFunc("POST /api/servers/{id}/scripts/{script}/install", s.api(admin, s.scriptInstall))
-	m.HandleFunc("PUT /api/servers/{id}/scripts/{script}/policy", s.api(admin, s.scriptPolicy))
+	m.HandleFunc("GET /api/latch", s.api(signedIn, s.latchStatus))
+	m.HandleFunc("POST /api/latch/link", s.api("panel.latch", s.latchLink))
+	m.HandleFunc("DELETE /api/latch/link", s.api("panel.latch", s.latchCancelLink))
+	m.HandleFunc("POST /api/latch/key", s.api("panel.latch", s.latchKey))
+	m.HandleFunc("DELETE /api/latch", s.api("panel.latch", s.latchUnlink))
+	m.HandleFunc("GET /api/latch/library", s.api(signedIn, s.latchLibrary))
+	m.HandleFunc("POST /api/servers/{id}/scripts/{script}/install", s.api("updates.scripts", s.scriptInstall))
+	m.HandleFunc("PUT /api/servers/{id}/scripts/{script}/policy", s.api("updates.scripts", s.scriptPolicy))
 	// UI
 	m.HandleFunc("/", s.static)
 }
@@ -111,7 +110,11 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request, _ ctxUser) erro
 }
 
 func userView(u store.User) map[string]any {
-	return map[string]any{"id": u.ID, "username": u.Username, "role": u.Role, "totp": u.TOTPSecret != "", "createdAt": u.CreatedAt}
+	servers := u.Servers
+	if servers == nil {
+		servers = []string{}
+	}
+	return map[string]any{"id": u.ID, "username": u.Username, "permissions": u.Permissions, "allServers": u.AllServers || perms.Has(u.Permissions, perms.All), "servers": servers, "totp": u.TOTPSecret != "", "createdAt": u.CreatedAt}
 }
 
 var usernameRe = regexp.MustCompile(`^[A-Za-z0-9_.-]{3,32}$`)
@@ -147,7 +150,7 @@ func (s *Server) setup(w http.ResponseWriter, r *http.Request, _ ctxUser) error 
 	if err != nil {
 		return err
 	}
-	u := store.User{ID: store.NewID(), Username: in.Username, PasswordHash: hash, Role: store.RoleOwner, CreatedAt: time.Now().UTC()}
+	u := store.User{ID: store.NewID(), Username: in.Username, PasswordHash: hash, Permissions: []string{perms.All}, AllServers: true, CreatedAt: time.Now().UTC()}
 	if err := s.App.Store.Update(func(st *store.State) error {
 		if len(st.Users) > 0 {
 			return fail(409, "done", "Setup is already finished.")
@@ -340,14 +343,74 @@ func (s *Server) listUsers(w http.ResponseWriter, r *http.Request, _ ctxUser) er
 	return nil
 }
 
-func validRole(r store.Role) bool {
-	return r == store.RoleOwner || r == store.RoleAdmin || r == store.RoleViewer
+func (s *Server) permissionList(w http.ResponseWriter, r *http.Request, _ ctxUser) error {
+	writeJSON(w, 200, perms.Groups)
+	return nil
+}
+
+// grantable checks a permission set: known permissions only, and none the granting user lacks.
+func grantable(me ctxUser, set []string) ([]string, error) {
+	clean := perms.Clean(set)
+	for _, p := range clean {
+		if !perms.Has(me.Permissions, p) {
+			return nil, fail(403, "cantGrant", "You can't give a permission you don't have yourself.")
+		}
+	}
+	return clean, nil
+}
+
+// grantCreator gives a user with limited server access the server they just added.
+func (s *Server) grantCreator(u ctxUser, id string) {
+	if u.CanServer(id) {
+		return
+	}
+	_ = s.setUser(u.ID, func(x *store.User) { x.Servers = append(x.Servers, id) })
+}
+
+// grantableServers checks a server list: existing servers only, and only ones the granting user can access.
+func (s *Server) grantableServers(me ctxUser, all bool, list []string) ([]string, error) {
+	if all {
+		if !me.AllServers && !perms.Has(me.Permissions, perms.All) {
+			return nil, fail(403, "cantGrant", "You can't give access to all servers: you don't have it yourself.")
+		}
+		return []string{}, nil
+	}
+	out := []string{}
+	seen := map[string]bool{}
+	for _, id := range list {
+		if seen[id] {
+			continue
+		}
+		if _, ok := s.App.Store.Server(id); !ok {
+			continue
+		}
+		if !me.CanServer(id) {
+			return nil, fail(403, "cantGrant", "You can't give access to a server you can't access yourself.")
+		}
+		seen[id] = true
+		out = append(out, id)
+	}
+	return out, nil
+}
+
+func (s *Server) allCount(except string) int {
+	n := 0
+	s.App.Store.Read(func(st *store.State) {
+		for _, u := range st.Users {
+			if u.ID != except && perms.Has(u.Permissions, perms.All) {
+				n++
+			}
+		}
+	})
+	return n
 }
 
 func (s *Server) createUser(w http.ResponseWriter, r *http.Request, me ctxUser) error {
 	var in struct {
 		Username, Password string
-		Role               store.Role
+		Permissions        []string
+		AllServers         bool
+		Servers            []string
 	}
 	if err := decode(r, &in); err != nil {
 		return err
@@ -355,8 +418,9 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request, me ctxUser) 
 	if !usernameRe.MatchString(in.Username) {
 		return fail(400, "badUsername", "Username: 3 to 32 letters, numbers, dots, dashes or underscores.")
 	}
-	if !validRole(in.Role) {
-		return badRequest(errors.New("unknown role"))
+	set, err := grantable(me, in.Permissions)
+	if err != nil {
+		return err
 	}
 	if err := auth.ValidPassword(in.Password); err != nil {
 		return fail(400, "badPassword", "Password: "+err.Error()+".")
@@ -365,7 +429,11 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request, me ctxUser) 
 	if err != nil {
 		return err
 	}
-	u := store.User{ID: store.NewID(), Username: in.Username, PasswordHash: hash, Role: in.Role, CreatedAt: time.Now().UTC()}
+	servers, err := s.grantableServers(me, in.AllServers, in.Servers)
+	if err != nil {
+		return err
+	}
+	u := store.User{ID: store.NewID(), Username: in.Username, PasswordHash: hash, Permissions: set, AllServers: in.AllServers, Servers: servers, CreatedAt: time.Now().UTC()}
 	if err := s.App.Store.Update(func(st *store.State) error {
 		for _, x := range st.Users {
 			if strings.EqualFold(x.Username, u.Username) {
@@ -377,38 +445,32 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request, me ctxUser) 
 	}); err != nil {
 		return err
 	}
-	s.App.Store.Audit(me.Username, "user.create", u.Username, map[string]string{"role": string(u.Role)})
+	s.App.Store.Audit(me.Username, "user.create", u.Username, map[string]string{"permissions": strings.Join(set, ",")})
 	writeJSON(w, 201, userView(u))
 	return nil
 }
 
-func (s *Server) ownerCount() int {
-	n := 0
-	s.App.Store.Read(func(st *store.State) {
-		for _, u := range st.Users {
-			if u.Role == store.RoleOwner {
-				n++
-			}
-		}
-	})
-	return n
-}
-
 func (s *Server) updateUser(w http.ResponseWriter, r *http.Request, me ctxUser) error {
 	var in struct {
-		Role      store.Role
-		Password  string
-		ResetTOTP bool
+		Permissions *[]string
+		AllServers  *bool
+		Servers     []string
+		Password    string
+		ResetTOTP   bool
 	}
 	if err := decode(r, &in); err != nil {
 		return err
 	}
 	id := r.PathValue("id")
-	if in.Role != "" && !validRole(in.Role) {
-		return badRequest(errors.New("unknown role"))
-	}
-	if in.Role != "" && in.Role != store.RoleOwner && id == me.ID && s.ownerCount() == 1 {
-		return fail(400, "lastOwner", "You're the only owner. Make someone else owner first.")
+	var set []string
+	if in.Permissions != nil {
+		var err error
+		if set, err = grantable(me, *in.Permissions); err != nil {
+			return err
+		}
+		if !perms.Has(set, perms.All) && s.allCount(id) == 0 {
+			return fail(400, "lastAll", "Someone must keep all permissions. Give them to another user first.")
+		}
 	}
 	var hash string
 	if in.Password != "" {
@@ -418,10 +480,32 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request, me ctxUser) 
 		hash, _ = auth.HashPassword(in.Password)
 	}
 	var name string
+	var target store.User
+	s.App.Store.Read(func(st *store.State) {
+		for _, u := range st.Users {
+			if u.ID == id {
+				target = u
+			}
+		}
+	})
+	// Only someone with all permissions can change a user who has them.
+	if perms.Has(target.Permissions, perms.All) && !perms.Has(me.Permissions, perms.All) {
+		return errForbidden
+	}
+	var servers []string
+	if in.AllServers != nil {
+		var err error
+		if servers, err = s.grantableServers(me, *in.AllServers, in.Servers); err != nil {
+			return err
+		}
+	}
 	if err := s.setUser(id, func(x *store.User) {
 		name = x.Username
-		if in.Role != "" {
-			x.Role = in.Role
+		if in.Permissions != nil {
+			x.Permissions = set
+		}
+		if in.AllServers != nil {
+			x.AllServers, x.Servers = *in.AllServers, servers
 		}
 		if hash != "" {
 			x.PasswordHash = hash
@@ -435,7 +519,11 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request, me ctxUser) 
 	if hash != "" || in.ResetTOTP {
 		s.endSessions(id, "")
 	}
-	s.App.Store.Audit(me.Username, "user.update", name, map[string]string{"role": string(in.Role), "password": fmt.Sprint(hash != ""), "resetTotp": fmt.Sprint(in.ResetTOTP)})
+	detail := map[string]string{"password": fmt.Sprint(hash != ""), "resetTotp": fmt.Sprint(in.ResetTOTP)}
+	if in.Permissions != nil {
+		detail["permissions"] = strings.Join(set, ",")
+	}
+	s.App.Store.Audit(me.Username, "user.update", name, detail)
 	writeJSON(w, 200, map[string]bool{"ok": true})
 	return nil
 }
@@ -449,6 +537,9 @@ func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request, me ctxUser) 
 	if err := s.App.Store.Update(func(st *store.State) error {
 		for i, u := range st.Users {
 			if u.ID == id {
+				if perms.Has(u.Permissions, perms.All) && !perms.Has(me.Permissions, perms.All) {
+					return errForbidden
+				}
 				name = u.Username
 				st.Users = append(st.Users[:i], st.Users[i+1:]...)
 				return nil
@@ -581,11 +672,12 @@ func (s *Server) games(w http.ResponseWriter, r *http.Request, _ ctxUser) error 
 
 type serverView struct {
 	store.Server
-	Env      []envView         `json:"env"`
-	Status   supervisor.Status `json:"status"`
-	Update   app.ProductInfo   `json:"update"`
-	Job      *app.Job          `json:"job,omitempty"`
-	GameName string            `json:"gameName"`
+	Env      []envView            `json:"env"`
+	Status   supervisor.Status    `json:"status"`
+	Update   app.ProductInfo      `json:"update"`
+	Job      *app.Job             `json:"job,omitempty"`
+	GameName string               `json:"gameName"`
+	Commands []supervisor.Command `json:"commands"`
 }
 
 type envView struct {
@@ -596,7 +688,7 @@ type envView struct {
 }
 
 // view builds the server JSON. Env values are included only for admins and owners.
-func (s *Server) view(sv store.Server, role store.Role) serverView {
+func (s *Server) view(sv store.Server, set []string) serverView {
 	v := serverView{Server: sv, Status: s.App.Proc(sv.ID).Status(), Update: s.App.Product(sv.Game, sv.Version)}
 	if g, ok := games.ByID(sv.Game); ok {
 		v.GameName = g.Label
@@ -608,7 +700,7 @@ func (s *Server) view(sv store.Server, role store.Role) serverView {
 	}
 	v.Env = make([]envView, 0, len(sv.Env))
 	for _, e := range sv.Env {
-		if rank[role] < rank[store.RoleAdmin] {
+		if !perms.Has(set, "config.view") {
 			break
 		}
 		ev := envView{Key: e.Key, Secret: e.Secret, Set: e.Value != ""}
@@ -618,6 +710,7 @@ func (s *Server) view(sv store.Server, role store.Role) serverView {
 		v.Env = append(v.Env, ev)
 	}
 	v.Server.Env = nil
+	v.Commands = s.App.Proc(sv.ID).Commands()
 	if j := s.App.Jobs.Active(sv.ID); j != nil {
 		snap := j.Snapshot()
 		v.Job = &snap
@@ -630,7 +723,10 @@ func (s *Server) listServers(w http.ResponseWriter, r *http.Request, u ctxUser) 
 	s.App.Store.Read(func(st *store.State) { list = append(list, st.Servers...) })
 	out := make([]serverView, 0, len(list))
 	for _, sv := range list {
-		out = append(out, s.view(sv, u.Role))
+		if !u.CanServer(sv.ID) {
+			continue
+		}
+		out = append(out, s.view(sv, u.Permissions))
 	}
 	writeJSON(w, 200, out)
 	return nil
@@ -649,7 +745,7 @@ func (s *Server) getServer(w http.ResponseWriter, r *http.Request, u ctxUser) er
 	if err != nil {
 		return err
 	}
-	writeJSON(w, 200, s.view(sv, u.Role))
+	writeJSON(w, 200, s.view(sv, u.Permissions))
 	return nil
 }
 
@@ -658,7 +754,7 @@ func (s *Server) installServer(w http.ResponseWriter, r *http.Request, u ctxUser
 	if err := decode(r, &in); err != nil {
 		return err
 	}
-	j, err := s.App.InstallServer(in, u.Username)
+	j, err := s.App.InstallServer(in, u.Username, func(id string) { s.grantCreator(u, id) })
 	if err != nil {
 		return badRequest(err)
 	}
@@ -688,7 +784,8 @@ func (s *Server) importServer(w http.ResponseWriter, r *http.Request, u ctxUser)
 	if err != nil {
 		return badRequest(err)
 	}
-	writeJSON(w, 201, s.view(sv, u.Role))
+	s.grantCreator(u, sv.ID)
+	writeJSON(w, 201, s.view(sv, u.Permissions))
 	return nil
 }
 
@@ -782,6 +879,13 @@ func (s *Server) serverAction(w http.ResponseWriter, r *http.Request, u ctxUser)
 	}
 	p := s.App.Proc(sv.ID)
 	action := r.PathValue("action")
+	need := "server.control"
+	if action == "update" {
+		need = "updates.game"
+	}
+	if !perms.Has(u.Permissions, need) {
+		return errForbidden
+	}
 	switch action {
 	case "start":
 		err = p.Start()
@@ -810,7 +914,7 @@ func (s *Server) serverAction(w http.ResponseWriter, r *http.Request, u ctxUser)
 		return badRequest(err)
 	}
 	s.App.Store.Audit(u.Username, "server."+action, sv.Name, nil)
-	writeJSON(w, 200, s.view(sv, u.Role))
+	writeJSON(w, 200, s.view(sv, u.Permissions))
 	return nil
 }
 
@@ -1081,7 +1185,7 @@ func (s *Server) getEnv(w http.ResponseWriter, r *http.Request, u ctxUser) error
 	if err != nil {
 		return err
 	}
-	writeJSON(w, 200, s.view(sv, u.Role).Env)
+	writeJSON(w, 200, s.view(sv, u.Permissions).Env)
 	return nil
 }
 
@@ -1218,9 +1322,12 @@ func (s *Server) restore(w http.ResponseWriter, r *http.Request, u ctxUser) erro
 	return nil
 }
 
-func (s *Server) job(w http.ResponseWriter, r *http.Request, _ ctxUser) error {
+func (s *Server) job(w http.ResponseWriter, r *http.Request, u ctxUser) error {
 	j, ok := s.App.Jobs.Get(r.PathValue("id"))
 	if !ok {
+		return errNotFound
+	}
+	if sid := j.Snapshot().ServerID; sid != "" && !u.CanServer(sid) {
 		return errNotFound
 	}
 	writeJSON(w, 200, j.Snapshot())
@@ -1281,7 +1388,7 @@ func (s *Server) latchUnlink(w http.ResponseWriter, r *http.Request, u ctxUser) 
 	return s.latchStatus(w, r, u)
 }
 
-func (s *Server) latchLibrary(w http.ResponseWriter, r *http.Request, _ ctxUser) error {
+func (s *Server) latchLibrary(w http.ResponseWriter, r *http.Request, u ctxUser) error {
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 	rows, err := s.App.Library(ctx)
@@ -1290,6 +1397,13 @@ func (s *Server) latchLibrary(w http.ResponseWriter, r *http.Request, _ ctxUser)
 	}
 	if rows == nil {
 		rows = []app.ScriptRow{}
+	}
+	for _, row := range rows {
+		for id := range row.Servers {
+			if !u.CanServer(id) {
+				delete(row.Servers, id)
+			}
+		}
 	}
 	writeJSON(w, 200, rows)
 	return nil
@@ -1348,4 +1462,69 @@ func (s *Server) static(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "no-cache")
 	}
 	http.ServeFileFS(w, r, s.UI, p)
+}
+
+// ---------- statistics ----------
+
+var ranges = map[string]time.Duration{"1h": time.Hour, "6h": 6 * time.Hour, "24h": 24 * time.Hour, "7d": 7 * 24 * time.Hour}
+
+const chartPoints = 240
+
+func rangeFrom(r *http.Request) (int64, string) {
+	key := r.URL.Query().Get("range")
+	d, ok := ranges[key]
+	if !ok {
+		key, d = "24h", ranges["24h"]
+	}
+	return time.Now().Add(-d).Unix(), key
+}
+
+type serverStats struct {
+	ID      string            `json:"id"`
+	Name    string            `json:"name"`
+	Game    string            `json:"game"`
+	Status  supervisor.Status `json:"status"`
+	Points  []metrics.Point   `json:"points"`
+	Summary metrics.Summary   `json:"summary"`
+}
+
+func (s *Server) stats(w http.ResponseWriter, r *http.Request, u ctxUser) error {
+	from, key := rangeFrom(r)
+	var list []store.Server
+	s.App.Store.Read(func(st *store.State) { list = append(list, st.Servers...) })
+	servers := make([]serverStats, 0, len(list))
+	for _, sv := range list {
+		if !u.CanServer(sv.ID) {
+			continue
+		}
+		servers = append(servers, serverStats{ID: sv.ID, Name: sv.Name, Game: sv.Game, Status: s.App.Proc(sv.ID).Status(), Points: s.App.Metrics.Range(sv.ID, from, chartPoints), Summary: s.App.Metrics.Summary(sv.ID, from)})
+	}
+	writeJSON(w, 200, map[string]any{
+		"range":   key,
+		"from":    from,
+		"host":    map[string]any{"info": s.App.Metrics.HostInfo(), "points": s.App.Metrics.Range("host", from, chartPoints), "summary": s.App.Metrics.Summary("host", from)},
+		"servers": servers,
+	})
+	return nil
+}
+
+func (s *Server) serverStats(w http.ResponseWriter, r *http.Request, _ ctxUser) error {
+	sv, err := s.server(r)
+	if err != nil {
+		return err
+	}
+	from, key := rangeFrom(r)
+	events := s.App.Metrics.EventsSince(sv.ID, from)
+	if len(events) > 100 {
+		events = events[:100]
+	}
+	writeJSON(w, 200, map[string]any{
+		"range":   key,
+		"from":    from,
+		"points":  s.App.Metrics.Range(sv.ID, from, chartPoints),
+		"summary": s.App.Metrics.Summary(sv.ID, from),
+		"events":  events,
+		"host":    s.App.Metrics.HostInfo(),
+	})
+	return nil
 }
