@@ -234,10 +234,85 @@ function DataFiles({ server }) {
   )
 }
 
-export default function ConfigTab({ server }) {
+function TokenCard({ server, reload }) {
+  const { t } = useTranslation()
+  const [token, setToken] = useState("")
+  const [pending, setPending] = useState(false)
+  const [error, setError] = useState(null)
+  async function save(value) {
+    setPending(true)
+    setError(null)
+    try {
+      await api.setToken(server.id, value)
+      setToken("")
+      toast.success(t(value ? "token.saved" : "token.cleared"))
+      const note = restartNote(server, t)
+      if (note) toast.message(note)
+      reload?.()
+    } catch (err) {
+      setError(err)
+    } finally {
+      setPending(false)
+    }
+  }
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>{t("token.title")}</CardTitle>
+        <CardDescription>{t("token.text", { port: server.port })}</CardDescription>
+        <CardAction>
+          {server.tokenSet ? (
+            <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
+              <span className="size-1.5 rounded-full bg-success" aria-hidden="true" />
+              {t("token.set")}
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 text-sm text-warning">
+              <span className="size-1.5 rounded-full bg-warning" aria-hidden="true" />
+              {t("token.missing")}
+            </span>
+          )}
+        </CardAction>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault()
+            save(token.trim())
+          }}
+          className="flex gap-2"
+        >
+          <Input
+            type="password"
+            autoComplete="off"
+            spellCheck={false}
+            value={token}
+            onChange={(e) => setToken(e.target.value)}
+            placeholder={server.tokenSet ? t("config.secretStored") : t("token.placeholder")}
+            className="font-mono"
+            aria-label={t("token.title")}
+          />
+          <Button type="submit" disabled={pending || !token.trim()}>
+            {pending && <Spinner />}
+            {t("common.save")}
+          </Button>
+          {server.tokenSet && (
+            <Button type="button" variant="ghost" disabled={pending} onClick={() => save("")}>
+              {t("token.clear")}
+            </Button>
+          )}
+        </form>
+        <ErrorNote error={error} />
+      </CardContent>
+    </Card>
+  )
+}
+
+export default function ConfigTab({ server, reload }) {
   const { t } = useTranslation()
   return (
     <div className="space-y-6">
+      <TokenCard server={server} reload={reload} />
       <EnvEditor server={server} />
       <JsonEditor
         title="server.json"

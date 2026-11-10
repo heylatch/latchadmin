@@ -153,12 +153,17 @@ func (a *App) considerSelfUpdate(ctx context.Context) {
 // PrepareSelfUpdate downloads and verifies a release and queues it. It is applied when no server is running or at
 // the next scheduled restart, or right away with ApplyNow.
 func (a *App) PrepareSelfUpdate(ctx context.Context, version string) error {
-	path, err := selfupdate.Download(ctx, version)
+	a.selfMu.Lock()
+	defer a.selfMu.Unlock()
+	if a.pendingSelfUpdate() != "" {
+		return nil
+	}
+	path, hash, err := selfupdate.Download(ctx, version)
 	if err != nil {
 		return err
 	}
 	a.mu.Lock()
-	a.pendingSelf = path
+	a.pendingSelf, a.pendingHash = path, hash
 	a.mu.Unlock()
 	a.Store.Audit("system", "panel.updateReady", version, nil)
 	return nil
@@ -166,13 +171,18 @@ func (a *App) PrepareSelfUpdate(ctx context.Context, version string) error {
 
 // applySelfUpdate stops every server (they restart with the panel), swaps the binary and restarts.
 func (a *App) applySelfUpdate(_ context.Context) {
-	path := a.pendingSelfUpdate()
+	a.selfMu.Lock()
+	defer a.selfMu.Unlock()
+	a.mu.Lock()
+	path, hash := a.pendingSelf, a.pendingHash
+	a.pendingSelf = "" // taken: a second apply does nothing
+	a.mu.Unlock()
 	if path == "" {
 		return
 	}
 	a.Logf("installing panel update")
 	a.Shutdown()
-	exe, err := selfupdate.Swap(path)
+	exe, err := selfupdate.Swap(path, hash)
 	if err != nil {
 		a.Logf("panel update failed: %v", err)
 		a.mu.Lock()

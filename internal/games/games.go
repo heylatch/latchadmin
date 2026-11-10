@@ -17,6 +17,11 @@ var All = []Game{
 	{ID: "arcane-mp", Label: "Arcane MP", Slug: "hogwarts-mp", Exe: "ArcaneMPServer", OldExes: []string{"HogwartsMPServer"}, DefaultPort: 27015},
 	{ID: "kingdoms-connected", Label: "Kingdoms Connected", Slug: "kcdc", Exe: "KCDCServer", DefaultPort: 27015},
 	{ID: "mafia2-online", Label: "Mafia 2 Online", Slug: "m2o", Exe: "M2OServer", DefaultPort: 27015},
+	// No public release on api.mafiahub.dev yet, so their binary names aren't known: install unlocks when a release
+	// appears; until then an existing server is added by picking its binary.
+	{ID: "fallout-mp", Label: "Fallout MP", Slug: "fmp", DefaultPort: 27015},
+	{ID: "mafia-mp", Label: "Mafia MP", Slug: "mafia-mp", DefaultPort: 27015},
+	{ID: "vanta-mp", Label: "Vanta MP", Slug: "vanta", DefaultPort: 27015},
 }
 
 func ByID(id string) (Game, bool) {
@@ -34,7 +39,10 @@ func (g Game) ExeNames() []string {
 	if runtime.GOOS == "windows" {
 		ext = ".exe"
 	}
-	names := []string{g.Exe + ext}
+	var names []string
+	if g.Exe != "" {
+		names = append(names, g.Exe+ext)
+	}
 	for _, o := range g.OldExes {
 		names = append(names, o+ext)
 	}

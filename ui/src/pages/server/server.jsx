@@ -1,7 +1,9 @@
 import { Link, Navigate, useOutletContext, useParams } from "react-router"
 import { useTranslation } from "react-i18next"
-import { ArrowUpCircleIcon, CpuIcon, FolderIcon, MemoryStickIcon, NetworkIcon, PackageIcon, SirenIcon, TimerIcon, UsersIcon } from "lucide-react"
+import { ArrowUpCircleIcon, CpuIcon, FolderIcon, MemoryStickIcon, NetworkIcon, PackageIcon, SirenIcon, TimerIcon, TriangleAlertIcon, UsersIcon } from "lucide-react"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Query, StateBadge } from "@/components/common"
@@ -127,6 +129,18 @@ export default function ServerPage() {
             </div>
           </div>
           <StatusStrip server={server} />
+          {!server.tokenSet && can("config.view") && (
+            <Alert>
+              <TriangleAlertIcon aria-hidden="true" />
+              <AlertTitle>{t("token.bannerTitle")}</AlertTitle>
+              <AlertDescription className="flex flex-wrap items-center justify-between gap-3">
+                <span>{t("token.bannerText")}</span>
+                <Button size="sm" variant="outline" asChild>
+                  <Link to={`/servers/${server.id}/config`}>{t("token.bannerAction")}</Link>
+                </Button>
+              </AlertDescription>
+            </Alert>
+          )}
           <Tabs value={current.id}>
             <TabsList className="h-auto flex-wrap">
               {tabs.map((x) => (

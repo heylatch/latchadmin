@@ -167,7 +167,9 @@ func (a *App) BuildReport() latch.Report {
 	var servers []store.Server
 	a.Store.Read(func(st *store.State) {
 		r = latch.Report{InstanceID: st.InstanceID, Name: st.Settings.PanelName, PanelVersion: buildinfo.Version, OS: latch.OSName()}
-		servers = append(servers, st.Servers...)
+		for _, sv := range st.Servers {
+			servers = append(servers, sv.Clone())
+		}
 	})
 	if len(r.Name) > 60 {
 		r.Name = r.Name[:60]
@@ -250,7 +252,7 @@ func (a *App) Library(ctx context.Context) ([]ScriptRow, error) {
 		return nil, err
 	}
 	var servers []store.Server
-	a.Store.Read(func(st *store.State) { servers = append(servers, st.Servers...) })
+	servers = a.Store.Servers()
 	var out []ScriptRow
 	for _, it := range items {
 		if it.Script.Ecosystem != "mafiahub" {
@@ -355,7 +357,7 @@ func (a *App) autoScripts(ctx context.Context) {
 		return
 	}
 	var servers []store.Server
-	a.Store.Read(func(st *store.State) { servers = append(servers, st.Servers...) })
+	servers = a.Store.Servers()
 	for _, sv := range servers {
 		installed := latch.Installed(sv.Dir)
 		for _, it := range items {

@@ -40,6 +40,9 @@ type App struct {
 	link     *pendingLink
 	// pendingSelf is a verified panel update waiting for a quiet moment (no server running or a scheduled restart).
 	pendingSelf string
+	pendingHash []byte
+	selfMu      sync.Mutex      // one self-update prepare/apply at a time
+	installing  map[string]bool // folders an install job is writing to
 	// Restart is called after a self-update is swapped in. Set by main.
 	Restart func(exe string)
 }
@@ -90,7 +93,7 @@ func (a *App) spec(id string) (supervisor.Spec, error) {
 	if !ok {
 		return supervisor.Spec{}, fmt.Errorf("unknown game %q", sv.Game)
 	}
-	exe, err := release.FindExe(g, sv.Dir)
+	exe, err := release.FindExe(g, sv.Dir, sv.Exe)
 	if err != nil {
 		return supervisor.Spec{}, err
 	}
@@ -190,6 +193,8 @@ func (a *App) Boot() {
 
 // Shutdown stops every server gracefully. Their "was running" mark is kept, so they come back with the panel.
 func (a *App) Shutdown() {
+	// An install or game update half done would leave a broken server folder.
+	a.Jobs.Wait(10 * time.Minute)
 	a.mu.Lock()
 	a.shuttingDown = true
 	procs := make([]*supervisor.Proc, 0, len(a.procs))

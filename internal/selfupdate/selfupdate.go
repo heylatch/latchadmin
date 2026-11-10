@@ -121,47 +121,52 @@ func VerifySums(sums, sig []byte, version, asset string) ([]byte, error) {
 	return nil, fmt.Errorf("%s is not in this release", asset)
 }
 
-// Download fetches and verifies version for this platform. It returns the path of the new binary, next to the
-// running one.
-func Download(ctx context.Context, version string) (string, error) {
+// Download fetches and verifies version for this platform. It returns the path of the new binary (next to the
+// running one) and its verified SHA-256, which Swap checks again.
+func Download(ctx context.Context, version string) (string, []byte, error) {
 	if !versionRe.MatchString(version) {
-		return "", errors.New("bad version")
+		return "", nil, errors.New("bad version")
 	}
 	if Compare(version, buildinfo.Version) <= 0 {
-		return "", errors.New("that version isn't newer than this one")
+		return "", nil, errors.New("that version isn't newer than this one")
 	}
 	base := "https://github.com/" + buildinfo.Repo + "/releases/download/v" + version + "/"
 	sums, err := fetch(ctx, base+"SHA256SUMS", 64<<10)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	sig, err := fetch(ctx, base+"SHA256SUMS.sig", 4<<10)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	want, err := VerifySums(sums, sig, version, AssetName())
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	exe, err := os.Executable()
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	if exe, err = filepath.EvalSymlinks(exe); err != nil {
-		return "", err
+		return "", nil, err
 	}
 	res, err := netx.Get(ctx, base+AssetName(), nil)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("download: HTTP %d", res.StatusCode)
+		return "", nil, fmt.Errorf("download: HTTP %d", res.StatusCode)
 	}
-	next := exe + ".new"
-	f, err := os.OpenFile(next, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o755)
+	f, err := os.CreateTemp(filepath.Dir(exe), filepath.Base(exe)+".new-*")
 	if err != nil {
-		return "", err
+		return "", nil, err
+	}
+	next := f.Name()
+	if err := f.Chmod(0o755); err != nil && runtime.GOOS != "windows" {
+		f.Close()
+		os.Remove(next)
+		return "", nil, err
 	}
 	h := sha256.New()
 	_, err = io.Copy(io.MultiWriter(f, h), io.LimitReader(res.Body, 200<<20))
@@ -173,14 +178,32 @@ func Download(ctx context.Context, version string) (string, error) {
 	}
 	if err != nil {
 		os.Remove(next)
-		return "", err
+		return "", nil, err
 	}
-	return next, nil
+	return next, want, nil
 }
 
-// Swap puts the downloaded binary in place of the running one. The old one is kept as <exe>.old.
-func Swap(next string) (string, error) {
-	exe := strings.TrimSuffix(next, ".new")
+// Swap puts the downloaded binary in place of the running one, after checking its hash again (it may have waited
+// on disk for hours). The old one is kept as <exe>.old.
+func Swap(next string, want []byte) (string, error) {
+	f, err := os.Open(next)
+	if err != nil {
+		return "", err
+	}
+	h := sha256.New()
+	_, err = io.Copy(h, f)
+	f.Close()
+	if err != nil || !bytes.Equal(h.Sum(nil), want) {
+		os.Remove(next)
+		return "", errors.New("the downloaded update changed on disk; it was refused")
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	if exe, err = filepath.EvalSymlinks(exe); err != nil {
+		return "", err
+	}
 	old := exe + ".old"
 	_ = os.Remove(old)
 	// Windows can rename a running executable but not overwrite it.

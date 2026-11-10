@@ -51,10 +51,10 @@ func (s *Server) routes() {
 	// Panel
 	m.HandleFunc("GET /api/panel", s.api(signedIn, s.panel))
 	m.HandleFunc("PATCH /api/panel/settings", s.api("panel.settings", s.panelSettings))
-	m.HandleFunc("POST /api/panel/check", s.api(signedIn, s.panelCheck))
+	m.HandleFunc("POST /api/panel/check", s.api("panel.update", s.panelCheck))
 	m.HandleFunc("POST /api/panel/update", s.api("panel.update", s.panelUpdate))
 	m.HandleFunc("GET /api/audit", s.api("panel.activity", s.audit))
-	m.HandleFunc("GET /api/browse", s.api("server.add", s.browse))
+	m.HandleFunc("GET /api/browse", s.api(perms.All, s.browse)) // lists the whole disk: only for full access
 	m.HandleFunc("GET /api/stats", s.api(signedIn, s.stats))
 	// Servers
 	m.HandleFunc("GET /api/games", s.api(signedIn, s.games))
@@ -77,6 +77,7 @@ func (s *Server) routes() {
 	m.HandleFunc("DELETE /api/servers/{id}/resources/{folder}", s.api("resources.manage", s.removeResource))
 	m.HandleFunc("GET /api/servers/{id}/config", s.api("config.view", s.getConfig))
 	m.HandleFunc("PUT /api/servers/{id}/config", s.api("config.edit", s.putConfig))
+	m.HandleFunc("PUT /api/servers/{id}/token", s.api("config.edit", s.putToken))
 	m.HandleFunc("GET /api/servers/{id}/env", s.api("config.view", s.getEnv))
 	m.HandleFunc("PUT /api/servers/{id}/env", s.api("config.edit", s.putEnv))
 	m.HandleFunc("GET /api/servers/{id}/data", s.api("config.view", s.listData))
@@ -211,7 +212,6 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request, _ ctxUser) error 
 			return fail(401, "badCode", "That code is wrong or expired.")
 		}
 	}
-	s.logins.Reset(ip)
 	s.App.Store.Audit(u.Username, "login", "", map[string]string{"ip": ip})
 	if err := s.newSession(w, r, u.ID); err != nil {
 		return err
@@ -280,6 +280,9 @@ var (
 )
 
 func (s *Server) totpSetup(w http.ResponseWriter, r *http.Request, u ctxUser) error {
+	if u.TOTPSecret != "" {
+		return fail(400, "totpOn", "Two-factor authentication is already on. Turn it off first (that asks for your password).")
+	}
 	sec := auth.NewTOTPSecret()
 	totpMu.Lock()
 	pendingTOTP[u.ID] = sec
@@ -378,6 +381,32 @@ func outranks(me ctxUser, target store.User) bool {
 	return true
 }
 
+// setUserChecked changes a user and, in the same store update, refuses a change that leaves nobody with all
+// permissions.
+func (s *Server) setUserChecked(id string, fn func(*store.User), lastAll *bool) error {
+	return s.App.Store.Update(func(st *store.State) error {
+		found := false
+		for i := range st.Users {
+			if st.Users[i].ID == id {
+				fn(&st.Users[i])
+				found = true
+			}
+		}
+		if !found {
+			return store.ErrNotFound
+		}
+		if *lastAll {
+			for _, u := range st.Users {
+				if perms.Has(u.Permissions, perms.All) {
+					return nil
+				}
+			}
+			return fail(400, "lastAll", "Someone must keep all permissions. Give them to another user first.")
+		}
+		return nil
+	})
+}
+
 // grantCreator gives a user with limited server access the server they just added.
 func (s *Server) grantCreator(u ctxUser, id string) {
 	if u.CanServer(id) {
@@ -412,17 +441,6 @@ func (s *Server) grantableServers(me ctxUser, all bool, list []string) ([]string
 	return out, nil
 }
 
-func (s *Server) allCount(except string) int {
-	n := 0
-	s.App.Store.Read(func(st *store.State) {
-		for _, u := range st.Users {
-			if u.ID != except && perms.Has(u.Permissions, perms.All) {
-				n++
-			}
-		}
-	})
-	return n
-}
 
 func (s *Server) createUser(w http.ResponseWriter, r *http.Request, me ctxUser) error {
 	var in struct {
@@ -487,9 +505,7 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request, me ctxUser) 
 		if set, err = grantable(me, *in.Permissions); err != nil {
 			return err
 		}
-		if !perms.Has(set, perms.All) && s.allCount(id) == 0 {
-			return fail(400, "lastAll", "Someone must keep all permissions. Give them to another user first.")
-		}
+
 	}
 	var hash string
 	if in.Password != "" {
@@ -520,11 +536,13 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request, me ctxUser) 
 			return err
 		}
 	}
-	if err := s.setUser(id, func(x *store.User) {
+	lastAll := false
+	if err := s.setUserChecked(id, func(x *store.User) {
 		name = x.Username
 		if in.Permissions != nil {
 			x.Permissions = set
 		}
+		lastAll = in.Permissions != nil && !perms.Has(set, perms.All)
 		if in.AllServers != nil {
 			x.AllServers, x.Servers = *in.AllServers, servers
 		}
@@ -534,7 +552,7 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request, me ctxUser) 
 		if in.ResetTOTP {
 			x.TOTPSecret = ""
 		}
-	}); err != nil {
+	}, &lastAll); err != nil {
 		return err
 	}
 	if hash != "" || in.ResetTOTP {
@@ -681,11 +699,13 @@ func (s *Server) browse(w http.ResponseWriter, r *http.Request, _ ctxUser) error
 func (s *Server) games(w http.ResponseWriter, r *http.Request, _ ctxUser) error {
 	type gameView struct {
 		games.Game
-		Latest string `json:"latest"`
+		Latest      string `json:"latest"`
+		Installable bool   `json:"installable"` // a public release exists and its binary name is known
 	}
 	var out []gameView
 	for _, g := range games.All {
-		out = append(out, gameView{g, s.App.Product(g.ID, "").Latest})
+		latest := s.App.Product(g.ID, "").Latest
+		out = append(out, gameView{g, latest, g.Exe != ""})
 	}
 	writeJSON(w, 200, out)
 	return nil
@@ -698,6 +718,7 @@ type serverView struct {
 	Update   app.ProductInfo      `json:"update"`
 	Job      *app.Job             `json:"job,omitempty"`
 	GameName string               `json:"gameName"`
+	TokenSet bool                 `json:"tokenSet"`
 	Commands []supervisor.Command `json:"commands"`
 }
 
@@ -732,6 +753,7 @@ func (s *Server) view(sv store.Server, set []string) serverView {
 	}
 	v.Server.Env = nil
 	v.Commands = s.App.Proc(sv.ID).Commands()
+	v.TokenSet = app.TokenSet(sv.Dir)
 	if j := s.App.Jobs.Active(sv.ID); j != nil {
 		snap := j.Snapshot()
 		v.Job = &snap
@@ -741,7 +763,7 @@ func (s *Server) view(sv store.Server, set []string) serverView {
 
 func (s *Server) listServers(w http.ResponseWriter, r *http.Request, u ctxUser) error {
 	var list []store.Server
-	s.App.Store.Read(func(st *store.State) { list = append(list, st.Servers...) })
+	list = s.App.Store.Servers()
 	out := make([]serverView, 0, len(list))
 	for _, sv := range list {
 		if !u.CanServer(sv.ID) {
@@ -797,11 +819,11 @@ func (s *Server) importPreview(w http.ResponseWriter, r *http.Request, _ ctxUser
 }
 
 func (s *Server) importServer(w http.ResponseWriter, r *http.Request, u ctxUser) error {
-	var in struct{ Dir, Name string }
+	var in struct{ Dir, Name, Game, Exe string }
 	if err := decode(r, &in); err != nil {
 		return err
 	}
-	sv, err := s.App.ImportServer(in.Dir, in.Name, u.Username)
+	sv, err := s.App.ImportServer(in.Dir, in.Name, in.Game, in.Exe, u.Username)
 	if err != nil {
 		return badRequest(err)
 	}
@@ -1000,6 +1022,9 @@ func (s *Server) console(w http.ResponseWriter, r *http.Request, _ ctxUser) erro
 			}
 			fl.Flush()
 		case <-tick.C:
+			if cur, ok := s.user(r); !ok || !perms.Has(cur.Permissions, "console.view") || !cur.CanServer(sv.ID) {
+				return nil
+			}
 			send("status", p.Status())
 			fl.Flush()
 		}
@@ -1201,6 +1226,27 @@ func (s *Server) putConfig(w http.ResponseWriter, r *http.Request, u ctxUser) er
 	return nil
 }
 
+func (s *Server) putToken(w http.ResponseWriter, r *http.Request, u ctxUser) error {
+	var in struct{ Token string }
+	if err := decode(r, &in); err != nil {
+		return err
+	}
+	sv, err := s.server(r)
+	if err != nil {
+		return err
+	}
+	if err := app.SetToken(sv.Dir, in.Token); err != nil {
+		return badRequest(err)
+	}
+	action := "token.set"
+	if strings.TrimSpace(in.Token) == "" {
+		action = "token.clear"
+	}
+	s.App.Store.Audit(u.Username, action, sv.Name, nil)
+	writeJSON(w, 200, map[string]bool{"ok": true, "tokenSet": app.TokenSet(sv.Dir)})
+	return nil
+}
+
 func (s *Server) getEnv(w http.ResponseWriter, r *http.Request, u ctxUser) error {
 	sv, err := s.server(r)
 	if err != nil {
@@ -1365,8 +1411,12 @@ func (s *Server) latchStatus(w http.ResponseWriter, r *http.Request, u ctxUser) 
 		"linked": l.Key != "", "disconnected": l.Disconnected, "accountId": l.AccountID, "displayName": l.DisplayName,
 		"linkedAt": l.LinkedAt, "lastReportAt": l.LastReportAt, "checkLatch": check,
 		// Exactly what goes to Latch on the next report, and what went last time.
-		"nextReport": s.App.BuildReport(), "lastReport": l.LastReport,
-		"link": s.App.LinkStatus(),
+		"nextReport": nil, "lastReport": nil,
+		"link": nil,
+	}
+	// The report covers every server and the link code is for linking: only for those who manage the link.
+	if perms.Has(u.Permissions, "panel.latch") {
+		out["nextReport"], out["lastReport"], out["link"] = s.App.BuildReport(), l.LastReport, s.App.LinkStatus()
 	}
 	writeJSON(w, 200, out)
 	return nil
@@ -1512,7 +1562,7 @@ type serverStats struct {
 func (s *Server) stats(w http.ResponseWriter, r *http.Request, u ctxUser) error {
 	from, key := rangeFrom(r)
 	var list []store.Server
-	s.App.Store.Read(func(st *store.State) { list = append(list, st.Servers...) })
+	list = s.App.Store.Servers()
 	servers := make([]serverStats, 0, len(list))
 	for _, sv := range list {
 		if !u.CanServer(sv.ID) {

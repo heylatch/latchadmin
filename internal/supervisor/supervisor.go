@@ -91,7 +91,8 @@ type Proc struct {
 	killer   killer
 	st       Status
 	stopping bool
-	done     chan struct{}
+	done     chan struct{} // closed when the process has exited
+	fin      chan struct{} // closed after exit handling, when the state is final
 	restartT *time.Timer
 	backoff  time.Duration
 	cpuPrev  cpuSample
@@ -141,15 +142,25 @@ func (p *Proc) setState(s State) {
 // SetUpdating marks the server busy with a game update (it must be stopped).
 func (p *Proc) SetUpdating(on bool) error {
 	p.mu.Lock()
-	if on && p.st.State != Stopped && p.st.State != Crashed {
-		p.mu.Unlock()
-		return errors.New("stop the server first")
-	}
-	p.mu.Unlock()
 	if on {
-		p.setState(Updating)
+		if p.st.State != Stopped && p.st.State != Crashed {
+			p.mu.Unlock()
+			return errors.New("stop the server first")
+		}
+		p.cancelRestart()
+		p.st.State = Updating
 	} else {
-		p.setState(Stopped)
+		// Only leave Updating: the server may already have been started again.
+		if p.st.State != Updating {
+			p.mu.Unlock()
+			return nil
+		}
+		p.st.State = Stopped
+	}
+	state, cb := p.st.State, p.OnState
+	p.mu.Unlock()
+	if cb != nil {
+		cb(state)
 	}
 	return nil
 }
@@ -157,16 +168,29 @@ func (p *Proc) SetUpdating(on bool) error {
 // Start launches the server.
 func (p *Proc) Start() error {
 	p.mu.Lock()
-	if p.st.State == Running || p.st.State == Starting || p.st.State == Stopping || p.st.State == Updating {
+	if p.st.State != Stopped && p.st.State != Crashed {
+		state := p.st.State
 		p.mu.Unlock()
-		return fmt.Errorf("server is %s", p.st.State)
+		return fmt.Errorf("server is %s", state)
 	}
+	p.cancelRestart()
+	// Claim the start under the lock, so a crash-restart timer or a second click can't launch a second process.
+	p.st.State = Starting
+	p.mu.Unlock()
+	if err := p.launch(); err != nil {
+		p.setState(Stopped)
+		return err
+	}
+	return nil
+}
+
+// cancelRestart stops a pending crash restart; p.mu must be held.
+func (p *Proc) cancelRestart() {
 	if p.restartT != nil {
 		p.restartT.Stop()
 		p.restartT = nil
 	}
-	p.mu.Unlock()
-	return p.launch()
+	p.st.NextStart = time.Time{}
 }
 
 func (p *Proc) launch() error {
@@ -201,8 +225,9 @@ func (p *Proc) launch() error {
 		return err
 	}
 	done := make(chan struct{})
+	fin := make(chan struct{})
 	p.mu.Lock()
-	p.cmd, p.stdin, p.killer, p.done, p.stopping = cmd, stdin, k, done, false
+	p.cmd, p.stdin, p.killer, p.done, p.fin, p.stopping = cmd, stdin, k, done, fin, false
 	p.st = Status{State: Starting, PID: cmd.Process.Pid, StartedAt: time.Now(), Crashes: p.st.Crashes}
 	p.cpuPrev = cpuSample{}
 	cb := p.OnState
@@ -222,6 +247,7 @@ func (p *Proc) launch() error {
 		err := cmd.Wait()
 		close(done)
 		p.exited(err, spec.AutoRestart)
+		close(fin) // the state is final (Stopped or Crashed) once fin is closed
 	}()
 	return nil
 }
@@ -260,53 +286,73 @@ func (p *Proc) exited(err error, autoRestart bool) {
 		p.backoff = min(p.backoff*2, 5*time.Minute)
 	}
 	wait := p.backoff
+	p.st.State = Crashed
 	if autoRestart {
-		p.st.NextStart = time.Now().Add(wait)
-		p.restartT = time.AfterFunc(wait, func() {
-			p.mu.Lock()
-			p.restartT = nil
-			p.st.NextStart = time.Time{}
-			state := p.st.State
-			p.mu.Unlock()
-			if state == Crashed {
-				_ = p.launch()
-			}
-		})
+		p.scheduleRestart(wait)
 	}
+	cb := p.OnState
 	p.mu.Unlock()
 	if autoRestart {
 		p.Panelf("Restarting in %s", wait.Round(time.Second))
 	}
-	p.setState(Crashed)
+	if cb != nil {
+		cb(Crashed)
+	}
+}
+
+// scheduleRestart starts the server again after wait unless something else changed its state; p.mu must be held.
+func (p *Proc) scheduleRestart(wait time.Duration) {
+	p.st.NextStart = time.Now().Add(wait)
+	p.restartT = time.AfterFunc(wait, func() {
+		p.mu.Lock()
+		p.restartT = nil
+		p.st.NextStart = time.Time{}
+		if p.st.State != Crashed {
+			p.mu.Unlock()
+			return
+		}
+		p.st.State = Starting // claimed, as in Start
+		p.mu.Unlock()
+		if err := p.launch(); err != nil {
+			// The binary may be missing or locked for a moment: try again later instead of staying down.
+			p.mu.Lock()
+			p.st.State = Crashed
+			p.backoff = min(p.backoff*2, 5*time.Minute)
+			next := p.backoff
+			p.scheduleRestart(next)
+			p.mu.Unlock()
+			p.Panelf("Restart failed; trying again in %s", next.Round(time.Second))
+		}
+	})
 }
 
 // Stop asks the server to quit and kills it if it hasn't after 30 seconds.
 func (p *Proc) Stop() error {
 	p.mu.Lock()
-	if p.restartT != nil {
-		p.restartT.Stop()
-		p.restartT = nil
-		p.st.NextStart = time.Time{}
-	}
+	p.cancelRestart()
 	if p.cmd == nil {
-		if p.st.State == Crashed {
-			p.st.State = Stopped
-		}
+		crashed := p.st.State == Crashed
 		p.mu.Unlock()
+		if crashed {
+			p.setState(Stopped) // through setState, so "was running" and the stop event are recorded
+		}
 		return nil
 	}
 	p.stopping = true
-	stdin, done, k := p.stdin, p.done, p.killer
+	p.st.State = Stopping
+	stdin, fin, k, cb := p.stdin, p.fin, p.killer, p.OnState
 	p.mu.Unlock()
-	p.setState(Stopping)
+	if cb != nil {
+		cb(Stopping)
+	}
 	p.Panelf("Stopping: sent \"quit\"")
 	_, _ = io.WriteString(stdin, "quit\n")
 	select {
-	case <-done:
+	case <-fin:
 	case <-time.After(30 * time.Second):
 		p.Panelf("Server didn't stop within 30 seconds; killing it")
 		_ = k.Kill()
-		<-done
+		<-fin
 	}
 	return nil
 }
@@ -356,6 +402,10 @@ func (p *Proc) pump(r io.Reader, src string) {
 			continue
 		}
 		p.emit(Line{Text: text, Src: src})
+	}
+	if sc.Err() != nil {
+		p.emit(Line{Text: "[LatchAdmin] Output line too long; the rest of this output is skipped", Src: "panel"})
+		_, _ = io.Copy(io.Discard, r)
 	}
 }
 

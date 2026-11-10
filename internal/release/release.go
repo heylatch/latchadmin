@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -81,6 +82,8 @@ type Options struct {
 	Version string
 	// Examples: also copy the example resources shipped in the zip (fresh installs only).
 	Examples bool
+	// Token: the server token from the MafiaHub panel (lists the server in the in-game browser).
+	Token    string
 	Progress func(Progress)
 }
 
@@ -156,19 +159,24 @@ func Install(ctx context.Context, g games.Game, dir string, port int, opt Option
 	if opt.Examples {
 		_, _ = archive.Extract(zr, filepath.Join(dir, "resources"), archive.Options{Prefix: root + "resources/", Keep: func(string) bool { return true }})
 	}
-	if err := writeInitialConfig(dir, port); err != nil {
+	if err := writeInitialConfig(dir, port, opt.Token); err != nil {
 		return "", err
 	}
 	return versionOf(root), nil
 }
 
-// writeInitialConfig sets the port. The server fills in the other settings with defaults.
-func writeInitialConfig(dir string, port int) error {
+// writeInitialConfig sets the port and the MafiaHub server token. The server fills in the rest with defaults.
+// The token goes in server.json, not on the command line, where other users of the machine could read it.
+func writeInitialConfig(dir string, port int, token string) error {
 	p := filepath.Join(dir, "server.json")
 	if _, err := os.Stat(p); err == nil {
 		return nil
 	}
-	b, _ := json.MarshalIndent(map[string]any{"port": port}, "", "  ")
+	cfg := map[string]any{"port": port}
+	if token != "" {
+		cfg["server-token"] = token
+	}
+	b, _ := json.MarshalIndent(cfg, "", "  ")
 	return os.WriteFile(p, b, 0o644)
 }
 
@@ -255,7 +263,21 @@ func makeBackup(dir, version string, runtime []string) (Backup, error) {
 		return b, err
 	}
 	meta, _ := json.MarshalIndent(b, "", "  ")
-	return b, os.WriteFile(filepath.Join(dst, "backup.json"), meta, 0o644)
+	if err := os.WriteFile(filepath.Join(dst, "backup.json"), meta, 0o644); err != nil {
+		return b, err
+	}
+	pruneBackups(dir, keepBackups)
+	return b, nil
+}
+
+const keepBackups = 5
+
+// pruneBackups deletes all but the newest keep backups (each holds a full runtime and data/).
+func pruneBackups(dir string, keep int) {
+	list := Backups(dir)
+	for i := keep; i < len(list); i++ {
+		_ = os.RemoveAll(filepath.Join(dir, backupDir, list[i].Name))
+	}
 }
 
 // Backups lists the backups in dir, newest first.
@@ -362,8 +384,21 @@ func copyTree(src, dst string) error {
 	})
 }
 
-// FindExe returns the server binary in dir for game g.
-func FindExe(g games.Game, dir string) (string, error) {
+// FindExe returns the server binary in dir for game g. exe, when set, is the file name chosen for this server.
+func FindExe(g games.Game, dir, exe string) (string, error) {
+	if exe != "" {
+		if exe != filepath.Base(exe) || strings.HasPrefix(exe, ".") {
+			return "", errors.New("bad server binary name")
+		}
+		p := filepath.Join(dir, exe)
+		if info, err := os.Stat(p); err == nil && info.Mode().IsRegular() {
+			return p, nil
+		}
+		return "", fmt.Errorf("%s not found in %s", exe, dir)
+	}
+	if len(g.ExeNames()) == 0 {
+		return "", errors.New("choose this server's binary in its settings")
+	}
 	for _, n := range g.ExeNames() {
 		p := filepath.Join(dir, n)
 		if info, err := os.Stat(p); err == nil && info.Mode().IsRegular() {
@@ -373,10 +408,30 @@ func FindExe(g games.Game, dir string) (string, error) {
 	return "", fmt.Errorf("%s not found in %s", g.ExeNames()[0], dir)
 }
 
+// Candidates lists files in dir that look like a MafiaHub server binary ("<Name>Server", ".exe" on Windows).
+func Candidates(dir string) []string {
+	entries, _ := os.ReadDir(dir)
+	var out []string
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		n := e.Name()
+		base := strings.TrimSuffix(n, ".exe")
+		if runtime.GOOS == "windows" && !strings.HasSuffix(strings.ToLower(n), ".exe") {
+			continue
+		}
+		if strings.HasSuffix(base, "Server") && !strings.EqualFold(base, "crashpad_handler") {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
 // Detect guesses which game a folder holds, for importing an existing server.
 func Detect(dir string) (games.Game, bool) {
 	for _, g := range games.All {
-		if _, err := FindExe(g, dir); err == nil {
+		if _, err := FindExe(g, dir, ""); err == nil {
 			return g, true
 		}
 	}

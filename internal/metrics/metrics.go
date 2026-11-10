@@ -217,8 +217,11 @@ func (s *Store) Range(key string, from int64, maxPoints int) []Point {
 	}
 	src := sr.Raw
 	step := int64(Interval / time.Second)
-	if time.Now().Unix()-from > int64(rawKeep/time.Second) {
-		src = append(append([]Sample{}, sr.Minute...), summarise(sr.acc, time.Now().Unix()/60*60))
+	if time.Now().Unix()-from > int64(rawKeep/time.Second)+60 {
+		src = append([]Sample{}, sr.Minute...)
+		if len(sr.acc) > 0 {
+			src = append(src, summarise(sr.acc, sr.acc[0].T/60*60))
+		}
 		step = 60
 	}
 	now := time.Now().Unix()
@@ -294,8 +297,11 @@ func (s *Store) Summary(key string, from int64) Summary {
 	}
 	src := sr.Raw
 	step := int64(Interval / time.Second)
-	if time.Now().Unix()-from > int64(rawKeep/time.Second) {
-		src = append(append([]Sample{}, sr.Minute...), sr.acc...)
+	if time.Now().Unix()-from > int64(rawKeep/time.Second)+60 {
+		src = append([]Sample{}, sr.Minute...)
+		if len(sr.acc) > 0 {
+			src = append(src, summarise(sr.acc, sr.acc[0].T/60*60))
+		}
 		step = 60
 	}
 	var n, up, pn int

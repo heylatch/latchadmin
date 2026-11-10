@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -30,6 +31,7 @@ type NewServer struct {
 	Port     int    `json:"port"`
 	Examples bool   `json:"examples"`
 	License  string `json:"license"` // optional LATCH_LICENSE
+	Token    string `json:"token"`   // optional MafiaHub server token
 }
 
 func cleanDir(dir string) (string, error) {
@@ -75,16 +77,38 @@ func (a *App) InstallServer(in NewServer, user string, onCreated func(id string)
 	if a.dirInUse(dir) {
 		return nil, errors.New("another server already uses this folder")
 	}
+	a.mu.Lock()
+	if a.installing == nil {
+		a.installing = map[string]bool{}
+	}
+	key := strings.ToLower(dir)
+	if a.installing[key] {
+		a.mu.Unlock()
+		return nil, errors.New("an install into this folder is already running")
+	}
+	a.installing[key] = true
+	a.mu.Unlock()
+	unreserve := func() {
+		a.mu.Lock()
+		delete(a.installing, key)
+		a.mu.Unlock()
+	}
 	if in.Port == 0 {
 		in.Port = g.DefaultPort
 	}
 	if in.Port < 1 || in.Port > 65535 {
+		unreserve()
 		return nil, errors.New("port must be between 1 and 65535")
 	}
 	latest := a.latestGame(g.ID)
+	if g.Exe == "" {
+		unreserve()
+		return nil, fmt.Errorf("%s has no public release to install yet; add an existing server instead", g.Label)
+	}
 	return a.Jobs.Start("install", "", func(ctx context.Context, j *Job) (any, error) {
+		defer unreserve()
 		j.Set("download", 0, 0)
-		v, err := release.Install(ctx, g, dir, in.Port, release.Options{Version: latest, Examples: in.Examples, Progress: func(p release.Progress) { j.Set(p.Stage, p.Done, p.Total) }})
+		v, err := release.Install(ctx, g, dir, in.Port, release.Options{Version: latest, Examples: in.Examples, Token: strings.TrimSpace(in.Token), Progress: func(p release.Progress) { j.Set(p.Stage, p.Done, p.Total) }})
 		if err != nil {
 			return nil, err
 		}
@@ -117,6 +141,10 @@ type ImportPreview struct {
 	EnvFrom   string   `json:"envFrom,omitempty"`
 	Resources int      `json:"resources"`
 	Latch     int      `json:"latch"` // Latch-protected resources
+	TokenSet  bool     `json:"tokenSet"`
+	// Candidates: when the game isn't recognised, files that look like a server binary; the user picks one and
+	// the game.
+	Candidates []string `json:"candidates,omitempty"`
 }
 
 // PreviewImport inspects a folder without changing anything.
@@ -126,15 +154,18 @@ func (a *App) PreviewImport(dir string) (ImportPreview, error) {
 		return ImportPreview{}, err
 	}
 	g, ok := release.Detect(dir)
-	if !ok {
-		var names []string
-		for _, g := range games.All {
-			names = append(names, g.ExeNames()[0])
+	var p ImportPreview
+	if ok {
+		exe, _ := release.FindExe(g, dir, "")
+		p = ImportPreview{Dir: dir, Game: g.ID, Exe: filepath.Base(exe), Port: configPort(dir, g.DefaultPort)}
+	} else {
+		c := release.Candidates(dir)
+		if len(c) == 0 {
+			return ImportPreview{}, errors.New("no server binary found here (a file named like ArcaneMPServer.exe)")
 		}
-		return ImportPreview{}, fmt.Errorf("no server found here (looked for %s)", strings.Join(names, ", "))
+		p = ImportPreview{Dir: dir, Port: configPort(dir, 27015), Candidates: c}
 	}
-	exe, _ := release.FindExe(g, dir)
-	p := ImportPreview{Dir: dir, Game: g.ID, Exe: filepath.Base(exe), Port: configPort(dir, g.DefaultPort)}
+	p.TokenSet = TokenSet(dir)
 	if env, from := readEnvFiles(dir); from != "" {
 		p.EnvFrom = from
 		for _, e := range env {
@@ -151,11 +182,24 @@ func (a *App) PreviewImport(dir string) (ImportPreview, error) {
 	return p, nil
 }
 
-// ImportServer adds an existing server folder. No file in it is changed.
-func (a *App) ImportServer(dir, name, user string) (store.Server, error) {
+// ImportServer adds an existing server folder. No file in it is changed. game and exe are needed only when the
+// binary isn't recognised.
+func (a *App) ImportServer(dir, name, game, exe, user string) (store.Server, error) {
 	p, err := a.PreviewImport(dir)
 	if err != nil {
 		return store.Server{}, err
+	}
+	if p.Game == "" {
+		g, ok := games.ByID(game)
+		if !ok {
+			return store.Server{}, errors.New("choose the game")
+		}
+		if !slices.Contains(p.Candidates, exe) {
+			return store.Server{}, errors.New("choose the server binary")
+		}
+		p.Game, p.Exe, p.Port = g.ID, exe, configPort(p.Dir, g.DefaultPort)
+	} else {
+		exe = ""
 	}
 	if err := validName(name); err != nil {
 		return store.Server{}, err
@@ -171,7 +215,7 @@ func (a *App) ImportServer(dir, name, user string) (store.Server, error) {
 			}
 		}
 	}
-	sv := store.Server{ID: store.NewID(), Name: strings.TrimSpace(name), Game: p.Game, Dir: p.Dir, Port: p.Port, Env: env, Created: time.Now().UTC(), AutoRestart: true, GameUpdate: "manual"}
+	sv := store.Server{ID: store.NewID(), Name: strings.TrimSpace(name), Game: p.Game, Dir: p.Dir, Exe: exe, Port: p.Port, Env: env, Created: time.Now().UTC(), AutoRestart: true, GameUpdate: "manual"}
 	if err := a.Store.Update(func(st *store.State) error { st.Servers = append(st.Servers, sv); return nil }); err != nil {
 		return store.Server{}, err
 	}
@@ -302,13 +346,76 @@ func Browse(path string) (DirListing, error) {
 
 // ---------- Config files ----------
 
-// ReadConfig returns server.json (empty object when missing).
-func ReadConfig(dir string) (json.RawMessage, error) {
+// The MafiaHub server token never goes to the browser: the editor shows this instead and saving it keeps the
+// stored token.
+const tokenMask = "********"
+const tokenKey = "server-token"
+
+func readConfigMap(dir string) (map[string]any, error) {
 	raw, err := os.ReadFile(filepath.Join(dir, "server.json"))
 	if errors.Is(err, os.ErrNotExist) {
-		return json.RawMessage("{}"), nil
+		return map[string]any{}, nil
 	}
-	return raw, err
+	if err != nil {
+		return nil, err
+	}
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return nil, fmt.Errorf("server.json isn't valid JSON: %w", err)
+	}
+	if m == nil {
+		m = map[string]any{}
+	}
+	return m, nil
+}
+
+// TokenSet reports whether server.json has a MafiaHub server token.
+func TokenSet(dir string) bool {
+	m, err := readConfigMap(dir)
+	if err != nil {
+		return false
+	}
+	s, _ := m[tokenKey].(string)
+	return strings.TrimSpace(s) != ""
+}
+
+// ReadConfig returns server.json with the server token masked.
+func ReadConfig(dir string) (json.RawMessage, error) {
+	m, err := readConfigMap(dir)
+	if err != nil {
+		raw, rerr := os.ReadFile(filepath.Join(dir, "server.json"))
+		if rerr != nil {
+			return nil, err
+		}
+		// Broken JSON is shown as is so it can be fixed; a token in it can't be masked reliably, so refuse.
+		if strings.Contains(string(raw), tokenKey) {
+			return nil, err
+		}
+		return raw, nil
+	}
+	if s, _ := m[tokenKey].(string); s != "" {
+		m[tokenKey] = tokenMask
+	}
+	return json.MarshalIndent(m, "", "  ")
+}
+
+// SetToken stores or clears the MafiaHub server token.
+func SetToken(dir, token string) error {
+	m, err := readConfigMap(dir)
+	if err != nil {
+		return err
+	}
+	token = strings.TrimSpace(token)
+	if token == tokenMask || strings.ContainsAny(token, "\r\n") || len(token) > 512 {
+		return errors.New("invalid token")
+	}
+	if token == "" {
+		delete(m, tokenKey)
+	} else {
+		m[tokenKey] = token
+	}
+	pretty, _ := json.MarshalIndent(m, "", "  ")
+	return saveWithBackup(filepath.Join(dir, "server.json"), pretty)
 }
 
 // WriteConfig validates and saves server.json, keeping the previous one as server.json.bak.
@@ -316,6 +423,15 @@ func WriteConfig(dir string, raw []byte) error {
 	var v map[string]any
 	if err := json.Unmarshal(raw, &v); err != nil {
 		return fmt.Errorf("not valid JSON: %w", err)
+	}
+	// The editor shows the token masked; saving the mask keeps the stored token.
+	if s, _ := v[tokenKey].(string); s == tokenMask {
+		old, _ := readConfigMap(dir)
+		if t, ok := old[tokenKey]; ok {
+			v[tokenKey] = t
+		} else {
+			delete(v, tokenKey)
+		}
 	}
 	if p, ok := v["port"]; ok {
 		if f, ok := p.(float64); !ok || f < 1 || f > 65535 || f != float64(int(f)) {

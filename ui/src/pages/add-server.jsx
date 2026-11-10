@@ -16,6 +16,7 @@ import { FolderPicker } from "@/components/folder-picker"
 import { useApi } from "@/hooks/use-api"
 import { api } from "@/lib/api"
 import { formatBytes } from "@/lib/format"
+import { useCan } from "@/lib/session"
 import { cn } from "@/lib/utils"
 
 function ModeCard({ active, icon: Icon, title, text, onClick }) {
@@ -40,16 +41,19 @@ function ModeCard({ active, icon: Icon, title, text, onClick }) {
 
 function FolderField({ id, label, value, onChange, help, onBrowsed }) {
   const { t } = useTranslation()
+  const can = useCan()
   const [open, setOpen] = useState(false)
   return (
     <Field>
       <FieldLabel htmlFor={id}>{label}</FieldLabel>
       <div className="flex gap-2">
         <Input id={id} value={value} onChange={(e) => onChange(e.target.value)} placeholder={navigator.platform.startsWith("Win") ? "D:\\servers\\my-server" : "/srv/my-server"} className="font-mono" spellCheck={false} />
-        <Button type="button" variant="outline" onClick={() => setOpen(true)}>
-          <FolderOpenIcon aria-hidden="true" />
-          {t("add.browse")}
-        </Button>
+        {can("all") && (
+          <Button type="button" variant="outline" onClick={() => setOpen(true)}>
+            <FolderOpenIcon aria-hidden="true" />
+            {t("add.browse")}
+          </Button>
+        )}
       </div>
       {help && <FieldDescription>{help}</FieldDescription>}
       {open && <FolderPicker open={open} onOpenChange={setOpen} start={value} onPick={(p) => (onBrowsed ?? onChange)(p)} />}
@@ -74,7 +78,7 @@ function InstallForm() {
   const navigate = useNavigate()
   const { servers } = useOutletContext()
   const games = useApi(api.games)
-  const [form, setForm] = useState({ game: "arcane-mp", name: "", dir: "", port: 27015, examples: false, license: "" })
+  const [form, setForm] = useState({ game: "arcane-mp", name: "", dir: "", port: 27015, examples: false, license: "", token: "" })
   const [job, setJob] = useState(null)
   const [error, setError] = useState(null)
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }))
@@ -129,8 +133,10 @@ function InstallForm() {
                 </SelectTrigger>
                 <SelectContent position="popper">
                   {(games.data ?? []).map((g) => (
-                    <SelectItem key={g.id} value={g.id}>
-                      {g.label} {g.latest && <span className="font-mono text-muted-foreground">{g.latest}</span>}
+                    <SelectItem key={g.id} value={g.id} disabled={!g.installable}>
+                      <span>{g.label}</span>
+                      <span className="font-mono text-xs text-muted-foreground">{g.slug}</span>
+                      <span className="ml-auto text-xs text-muted-foreground">{g.installable ? g.latest : t("add.noRelease")}</span>
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -161,6 +167,11 @@ function InstallForm() {
                 <FieldDescription>{t("add.licenseHelp")}</FieldDescription>
               </Field>
             </div>
+            <Field>
+              <FieldLabel htmlFor="token">{t("add.token")}</FieldLabel>
+              <Input id="token" type="password" autoComplete="off" value={form.token} onChange={(e) => set("token", e.target.value)} disabled={running} spellCheck={false} />
+              <FieldDescription>{t("add.tokenHelp", { port: form.port || 27015, mod: game?.slug ?? "" })}</FieldDescription>
+            </Field>
             <Field orientation="horizontal">
               <Checkbox id="examples" checked={form.examples} onCheckedChange={(v) => set("examples", v === true)} disabled={running} />
               <FieldLabel htmlFor="examples" className="font-normal">
@@ -193,6 +204,8 @@ function ImportForm() {
   const { servers } = useOutletContext()
   const [dir, setDir] = useState("")
   const [name, setName] = useState("")
+  const [pick, setPick] = useState({ game: "", exe: "" })
+  const games = useApi(api.games)
   const [preview, setPreview] = useState(null)
   const [error, setError] = useState(null)
   const [pending, setPending] = useState(null)
@@ -204,6 +217,7 @@ function ImportForm() {
     try {
       const p = await api.importPreview(path)
       setPreview(p)
+      setPick({ game: "", exe: p.candidates?.length === 1 ? p.candidates[0] : "" })
       if (!name) setName(p.dir.split(/[\\/]/).filter(Boolean).pop() ?? "")
     } catch (err) {
       setError(err)
@@ -217,7 +231,7 @@ function ImportForm() {
     setError(null)
     setPending("add")
     try {
-      const sv = await api.importServer(preview.dir, name)
+      const sv = await api.importServer(preview.dir, name, pick.game, pick.exe)
       servers.reload()
       navigate(`/servers/${sv.id}`)
     } catch (err) {
@@ -227,7 +241,7 @@ function ImportForm() {
     }
   }
 
-  const gameLabel = { "arcane-mp": "Arcane MP", "kingdoms-connected": "Kingdoms Connected", "mafia2-online": "Mafia 2 Online" }
+  const gameLabel = (id) => games.data?.find((g) => g.id === id)?.label ?? id
   return (
     <Card>
       <form onSubmit={add} className="contents">
@@ -258,12 +272,20 @@ function ImportForm() {
                 <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 rounded-lg border p-4 text-sm">
                   <dt className="text-muted-foreground">{t("add.game")}</dt>
                   <dd>
-                    {gameLabel[preview.game] ?? preview.game} <span className="text-muted-foreground">({preview.exe})</span>
+                    {preview.game ? (
+                      <>
+                        {gameLabel(preview.game)} <span className="text-muted-foreground">({preview.exe})</span>
+                      </>
+                    ) : (
+                      <span className="text-muted-foreground">{t("add.unknownGame")}</span>
+                    )}
                   </dd>
                   <dt className="text-muted-foreground">{t("add.port")}</dt>
                   <dd className="font-mono">{preview.port}</dd>
                   <dt className="text-muted-foreground">{t("add.resources")}</dt>
                   <dd>{t("add.resourcesFound", { count: preview.resources, latch: preview.latch })}</dd>
+                  <dt className="text-muted-foreground">{t("add.token")}</dt>
+                  <dd>{preview.tokenSet ? t("add.tokenSet") : <span className="text-warning">{t("add.tokenMissing")}</span>}</dd>
                   <dt className="text-muted-foreground">{t("add.env")}</dt>
                   <dd className="min-w-0">
                     {preview.envKeys?.length ? (
@@ -276,6 +298,40 @@ function ImportForm() {
                     )}
                   </dd>
                 </dl>
+                {!preview.game && (
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <Field>
+                      <FieldLabel htmlFor="import-game">{t("add.game")}</FieldLabel>
+                      <Select value={pick.game} onValueChange={(v) => setPick((p) => ({ ...p, game: v }))}>
+                        <SelectTrigger id="import-game" className="w-full">
+                          <SelectValue placeholder={t("add.chooseGame")} />
+                        </SelectTrigger>
+                        <SelectContent position="popper">
+                          {(games.data ?? []).map((g) => (
+                            <SelectItem key={g.id} value={g.id}>
+                              {g.label} <span className="font-mono text-xs text-muted-foreground">{g.slug}</span>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                    <Field>
+                      <FieldLabel htmlFor="import-exe">{t("add.binary")}</FieldLabel>
+                      <Select value={pick.exe} onValueChange={(v) => setPick((p) => ({ ...p, exe: v }))}>
+                        <SelectTrigger id="import-exe" className="w-full font-mono">
+                          <SelectValue placeholder={t("add.chooseBinary")} />
+                        </SelectTrigger>
+                        <SelectContent position="popper">
+                          {preview.candidates.map((c) => (
+                            <SelectItem key={c} value={c} className="font-mono">
+                              {c}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                  </div>
+                )}
                 <Field>
                   <FieldLabel htmlFor="import-name">{t("add.name")}</FieldLabel>
                   <Input id="import-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={60} required />
@@ -291,7 +347,7 @@ function ImportForm() {
         </CardContent>
         {preview && (
           <CardFooter className="justify-end">
-            <Button type="submit" disabled={!name || pending === "add"}>
+            <Button type="submit" disabled={!name || pending === "add" || (!preview.game && (!pick.game || !pick.exe))}>
               {pending === "add" && <Spinner />}
               {t("add.addServer")}
             </Button>

@@ -80,6 +80,26 @@ func (js *Jobs) Get(id string) (*Job, bool) {
 	return j, ok
 }
 
+// Busy reports whether any job is still running.
+func (js *Jobs) Busy() bool {
+	js.mu.Lock()
+	defer js.mu.Unlock()
+	for _, j := range js.jobs {
+		if !j.Snapshot().Finished {
+			return true
+		}
+	}
+	return false
+}
+
+// Wait blocks until no job runs, or the timeout passes.
+func (js *Jobs) Wait(timeout time.Duration) {
+	deadline := time.Now().Add(timeout)
+	for js.Busy() && time.Now().Before(deadline) {
+		time.Sleep(500 * time.Millisecond)
+	}
+}
+
 // Active returns the unfinished job for a server, if any.
 func (js *Jobs) Active(serverID string) *Job {
 	js.mu.Lock()

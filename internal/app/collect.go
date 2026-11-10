@@ -15,7 +15,7 @@ func (a *App) collect(_ context.Context) {
 	now := time.Now()
 	dir := a.DataDir
 	var servers []store.Server
-	a.Store.Read(func(st *store.State) { servers = append(servers, st.Servers...) })
+	servers = a.Store.Servers()
 	if len(servers) > 0 {
 		dir = servers[0].Dir
 	}

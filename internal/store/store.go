@@ -54,6 +54,7 @@ type Server struct {
 	Name    string    `json:"name"`
 	Game    string    `json:"game"`
 	Dir     string    `json:"dir"`
+	Exe     string    `json:"exe,omitempty"` // server binary file name, when the game has no known one
 	Port    int       `json:"port"`
 	Version string    `json:"version"` // installed game runtime
 	Env     []EnvVar  `json:"env"`
@@ -173,10 +174,35 @@ func (s *Store) Server(id string) (Server, bool) {
 	defer s.mu.RUnlock()
 	for _, sv := range s.st.Servers {
 		if sv.ID == id {
-			return sv, true
+			return sv.Clone(), true
 		}
 	}
 	return Server{}, false
+}
+
+// Servers returns copies of every server, safe to use outside the lock.
+func (s *Store) Servers() []Server {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]Server, 0, len(s.st.Servers))
+	for _, sv := range s.st.Servers {
+		out = append(out, sv.Clone())
+	}
+	return out
+}
+
+// Clone copies a server, including its slices and map, so it can't be changed through the store.
+func (sv Server) Clone() Server {
+	sv.Env = append([]EnvVar(nil), sv.Env...)
+	sv.Restarts = append([]string(nil), sv.Restarts...)
+	if sv.ScriptPolicy != nil {
+		m := make(map[string]string, len(sv.ScriptPolicy))
+		for k, v := range sv.ScriptPolicy {
+			m[k] = v
+		}
+		sv.ScriptPolicy = m
+	}
+	return sv
 }
 
 // UpdateServer changes one server.
