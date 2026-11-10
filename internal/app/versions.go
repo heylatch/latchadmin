@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"regexp"
 	"sync"
 	"time"
 
@@ -88,11 +89,15 @@ func (a *App) Product(id, current string) ProductInfo {
 	a.versions.mu.Lock()
 	p, ok := a.versions.products[id]
 	a.versions.mu.Unlock()
-	if !ok || p.Latest == nil {
+	// Version numbers come from Latch or GitHub; anything that isn't a plain x.y.z is ignored.
+	if !ok || p.Latest == nil || !validVersion.MatchString(*p.Latest) {
 		return ProductInfo{}
 	}
 	info := ProductInfo{Latest: *p.Latest, Releases: p.Releases}
 	for _, r := range p.Releases {
+		if !validVersion.MatchString(r.Version) {
+			continue
+		}
 		if r.Urgent && (current == "" || compare(r.Version, current) > 0) {
 			rr := r
 			info.Urgent = &rr
@@ -103,6 +108,8 @@ func (a *App) Product(id, current string) ProductInfo {
 }
 
 func (a *App) latestGame(id string) string { return a.Product(id, "").Latest }
+
+var validVersion = regexp.MustCompile(`^\d{1,6}\.\d{1,6}\.\d{1,6}$`)
 
 // VersionsMeta tells the UI where versions came from and when.
 func (a *App) VersionsMeta() (string, time.Time, string) {

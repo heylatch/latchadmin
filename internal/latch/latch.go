@@ -18,6 +18,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 
@@ -167,6 +168,32 @@ type InstallResult struct {
 	Updated  bool     `json:"updated"`
 }
 
+var linkRe = regexp.MustCompile(`https?://\S+`)
+
+// checkPackage makes sure the zip is the script and version that was asked for: its latch.json (written by Latch
+// into every package) must name them. A package for another script can't replace this one.
+func checkPackage(zr *zip.Reader, root, scriptID, version string) error {
+	for _, f := range zr.File {
+		if f.Name != root+"latch.json" {
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return err
+		}
+		defer rc.Close()
+		var meta resources.Latch
+		if err := json.NewDecoder(io.LimitReader(rc, 64<<10)).Decode(&meta); err != nil {
+			return fmt.Errorf("package: latch.json is unreadable: %w", err)
+		}
+		if meta.ScriptID != scriptID || meta.Version != version {
+			return fmt.Errorf("package is for %s %s, not the version asked for", meta.ScriptID, meta.Version)
+		}
+		return nil
+	}
+	return errors.New("package has no latch.json; it doesn't look like a Latch package")
+}
+
 // DefaultKeep: files a server owner edits inside a resource; an update leaves them alone.
 var DefaultKeep = []string{"config.json", "config/**", "data/**", "*.config.json"}
 
@@ -191,7 +218,8 @@ func Install(ctx context.Context, key, serverDir string, item LibraryItem, versi
 	}
 	resp, err := netx.Get(ctx, dl.URL, nil)
 	if err != nil {
-		return res, err
+		// The link is signed: it would let anyone who reads the console log download the package.
+		return res, errors.New("package download failed: " + linkRe.ReplaceAllString(err.Error(), "[download link]"))
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
@@ -206,6 +234,9 @@ func Install(ctx context.Context, key, serverDir string, item LibraryItem, versi
 		return res, fmt.Errorf("package: %w", err)
 	}
 	root := archive.CommonRoot(zr.File)
+	if err := checkPackage(zr, root, item.Script.ID, version); err != nil {
+		return res, err
+	}
 	folder := strings.TrimSuffix(root, "/")
 	if folder == "" {
 		folder = item.Script.Slug
@@ -223,7 +254,7 @@ func Install(ctx context.Context, key, serverDir string, item LibraryItem, versi
 	}
 	target := filepath.Join(resDir, folder)
 	if info, err := os.Lstat(target); err == nil {
-		if info.Mode()&os.ModeSymlink != 0 {
+		if archive.IsLink(info) {
 			return res, fmt.Errorf("%s is a link to another folder (probably source code); LatchAdmin won't write through it", folder)
 		}
 		if _, err := os.Stat(filepath.Join(target, "latch.json")); err != nil {

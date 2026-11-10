@@ -21,11 +21,13 @@ type User struct {
 	PasswordHash string   `json:"passwordHash"`
 	Permissions  []string `json:"permissions"`
 	// AllServers grants access to every server, including ones added later; otherwise only those in Servers.
-	AllServers bool      `json:"allServers"`
-	Servers    []string  `json:"servers"`
-	Role       string    `json:"role,omitempty"`       // LatchAdmin 0.1 only; converted to Permissions on load
-	TOTPSecret string    `json:"totpSecret,omitempty"` // sealed; empty when 2FA is off
-	CreatedAt  time.Time `json:"createdAt"`
+	AllServers bool     `json:"allServers"`
+	Servers    []string `json:"servers"`
+	Role       string   `json:"role,omitempty"`       // LatchAdmin 0.1 only; converted to Permissions on load
+	TOTPSecret string   `json:"totpSecret,omitempty"` // sealed; empty when 2FA is off
+	// TOTPLastStep is the time step of the last code used to sign in; it can't be used again.
+	TOTPLastStep int64     `json:"totpLastStep,omitempty"`
+	CreatedAt    time.Time `json:"createdAt"`
 }
 
 type Session struct {

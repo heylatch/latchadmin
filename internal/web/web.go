@@ -8,10 +8,12 @@ package web
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"net"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/heylatch/latchadmin/internal/app"
@@ -27,13 +29,19 @@ type Server struct {
 	App    *app.App
 	UI     fs.FS // built web UI; nil serves a placeholder
 	mux    *http.ServeMux
-	logins *auth.Limiter
+	logins *auth.Limiter // per address (IPv6 per /64)
+	names  *auth.Limiter // per username, so rotating addresses doesn't buy more guesses
 	setups *auth.Limiter
-	OnPIN  func(pin string) // prints a rotated setup PIN to the console
+	// setupFails counts wrong setup PINs since start. Past maxSetupFails setup is closed until the panel restarts,
+	// so the 6-digit PIN can't be guessed from many addresses.
+	setupFails atomic.Int32
+	OnPIN      func(pin string) // prints a rotated setup PIN to the console
 }
 
+const maxSetupFails = 50
+
 func New(a *app.App, ui fs.FS) *Server {
-	s := &Server{App: a, UI: ui, mux: http.NewServeMux(), logins: auth.NewLimiter(10, 15*time.Minute), setups: auth.NewLimiter(20, 15*time.Minute)}
+	s := &Server{App: a, UI: ui, mux: http.NewServeMux(), logins: auth.NewLimiter(10, 15*time.Minute), names: auth.NewLimiter(30, 15*time.Minute), setups: auth.NewLimiter(20, 15*time.Minute)}
 	s.routes()
 	return s
 }
@@ -99,12 +107,78 @@ func decode(r *http.Request, v any) error {
 	return nil
 }
 
-func clientIP(r *http.Request) string {
+// trusted are the reverse proxies (--trusted-proxy) whose X-Forwarded-For and X-Forwarded-Proto are believed.
+// Nobody else's are: anyone can send those headers.
+var trusted []*net.IPNet
+
+// TrustProxies sets the trusted reverse proxies from a comma-separated list of addresses or CIDR ranges.
+func TrustProxies(list string) error {
+	trusted = nil
+	for _, p := range strings.Split(list, ",") {
+		if p = strings.TrimSpace(p); p == "" {
+			continue
+		}
+		if !strings.Contains(p, "/") {
+			if ip := net.ParseIP(p); ip != nil && ip.To4() != nil {
+				p += "/32"
+			} else {
+				p += "/128"
+			}
+		}
+		_, n, err := net.ParseCIDR(p)
+		if err != nil {
+			return fmt.Errorf("--trusted-proxy: %q isn't an address or CIDR range", p)
+		}
+		trusted = append(trusted, n)
+	}
+	return nil
+}
+
+func peerIP(r *http.Request) net.IP {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
-		return r.RemoteAddr
+		host = r.RemoteAddr
 	}
-	return host
+	return net.ParseIP(host)
+}
+
+func fromProxy(r *http.Request) bool {
+	ip := peerIP(r)
+	for _, n := range trusted {
+		if ip != nil && n.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+// clientIP is the address of whoever sent the request: the peer, or behind a trusted proxy the last address the
+// proxy added to X-Forwarded-For.
+func clientIP(r *http.Request) string {
+	if fromProxy(r) {
+		parts := strings.Split(r.Header.Get("X-Forwarded-For"), ",")
+		if ip := net.ParseIP(strings.TrimSpace(parts[len(parts)-1])); ip != nil {
+			return ip.String()
+		}
+	}
+	if ip := peerIP(r); ip != nil {
+		return ip.String()
+	}
+	return r.RemoteAddr
+}
+
+// limitKey groups IPv6 addresses by /64: one host usually holds a whole /64 and could rotate through it.
+func limitKey(ip string) string {
+	p := net.ParseIP(ip)
+	if p == nil || p.To4() != nil {
+		return ip
+	}
+	return p.Mask(net.CIDRMask(64, 128)).String() + "/64"
+}
+
+// isHTTPS reports whether the browser reached the panel over HTTPS, directly or through a trusted proxy.
+func isHTTPS(r *http.Request) bool {
+	return r.TLS != nil || (fromProxy(r) && strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https"))
 }
 
 // ---------- sessions ----------
@@ -152,7 +226,7 @@ func (s *Server) newSession(w http.ResponseWriter, r *http.Request, userID strin
 	if err != nil {
 		return err
 	}
-	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: token, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: r.TLS != nil, MaxAge: int(sessionTTL.Seconds())})
+	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: token, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode, Secure: isHTTPS(r), MaxAge: int(sessionTTL.Seconds())})
 	return nil
 }
 

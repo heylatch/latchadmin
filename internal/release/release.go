@@ -177,7 +177,7 @@ func writeInitialConfig(dir string, port int, token string) error {
 		cfg["server-token"] = token
 	}
 	b, _ := json.MarshalIndent(cfg, "", "  ")
-	return os.WriteFile(p, b, 0o644)
+	return os.WriteFile(p, b, 0o600) // holds the server token
 }
 
 // Backup is a saved copy made before an update.
@@ -374,8 +374,8 @@ func copyTree(src, dst string) error {
 			return err
 		}
 		rel, _ := filepath.Rel(src, p)
-		if d.Type()&os.ModeSymlink != 0 {
-			return nil
+		if d.Type()&(os.ModeSymlink|os.ModeIrregular) != 0 {
+			return nil // links and junctions are never copied
 		}
 		if d.IsDir() {
 			return os.MkdirAll(filepath.Join(dst, rel), 0o755)

@@ -117,6 +117,7 @@ export default {
     installText: "LatchAdmin yalnızca sunucu dosyalarını indirir (oyun istemcisini değil) ve portu ayarlar.",
     importTitle: "Mevcut bir sunucuyu kullan",
     importCard: "Sunucu dosyalarının olduğu klasörü seç. İçindeki hiçbir şey değişmez.",
+    importOwnerOnly: "Tüm izinler gerekir: panel o klasörde bulduğu programı çalıştırır.",
     importText: "LatchAdmin oyunu, portu ve başlatma script'inin kullandığı değişkenleri bulur.",
     game: "Oyun",
     gameHelp: "En son sürüm: {{version}}.",
@@ -648,7 +649,7 @@ export default {
       },
       "server.add": {
         label: "Sunucu ekle",
-        help: "Yeni sunucu kurar ya da mevcut klasörleri ekler. Bu makinedeki klasörlere göz atmayı sağlar.",
+        help: "Boş klasörlere yeni sunucu kurar. Bu makinede kod çalıştırmanın bir yolu: yalnızca makineyi emanet edeceğin kişilere ver.",
       },
       "server.remove": {
         label: "Sunucu kaldır",
@@ -664,7 +665,7 @@ export default {
       },
       "resources.manage": {
         label: "Resource'ları yönet",
-        help: "Resource yükle, aç, kapat, yeniden başlat ve kaldır.",
+        help: "Resource yükle, aç, kapat, yeniden başlat ve kaldır. Resource'lar bu makinede çalışan koddur: yalnızca makineyi emanet edeceğin kişilere ver.",
       },
       "config.view": {
         label: "Yapılandırmayı gör",
@@ -672,7 +673,7 @@ export default {
       },
       "config.edit": {
         label: "Yapılandırmayı düzenle",
-        help: "server.json'u, veri dosyalarını ve değişkenleri değiştir.",
+        help: "server.json'u, veri dosyalarını ve değişkenleri değiştir. Sunucuların nasıl çalıştığını değiştirebilir: yalnızca makineyi emanet edeceğin kişilere ver.",
       },
       "updates.game": {
         label: "Oyun güncellemeleri",

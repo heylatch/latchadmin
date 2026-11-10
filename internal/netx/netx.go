@@ -33,10 +33,14 @@ var allowedHosts = map[string]bool{
 	"ptb.discord.com":    true,
 }
 
-// Download hosts that the hosts above redirect to.
-var allowedSuffixes = []string{
-	".r2.cloudflarestorage.com", // MafiaHub release zips and Latch packages
-	".githubusercontent.com",    // GitHub release assets
+// Download hosts that the hosts above redirect to. Only the storage accounts of MafiaHub and Latch, not every R2
+// bucket, and only GitHub's release asset hosts, not raw files anyone can publish. Bucket-style names
+// ("<bucket>.<account>.r2.cloudflarestorage.com") of the same accounts are accepted too.
+var allowedDownloadHosts = map[string]bool{
+	"2a847ef49aad6a6bad3e183d42e129eb.r2.cloudflarestorage.com": true, // MafiaHub release zips
+	"4dc16afe8ffbae7eee8ad9ba2e789ac9.r2.cloudflarestorage.com": true, // Latch script packages (signed, short-lived links)
+	"release-assets.githubusercontent.com":                      true, // GitHub release assets
+	"objects.githubusercontent.com":                             true, // GitHub release assets (older links)
 }
 
 // ErrNotAllowed is returned for any URL outside the allow-list.
@@ -60,10 +64,11 @@ func Allowed(u *url.URL) bool {
 	if allowedHosts[host] {
 		return true
 	}
-	for _, s := range allowedSuffixes {
-		if strings.HasSuffix(host, s) && len(host) > len(s) {
-			return true
-		}
+	if allowedDownloadHosts[host] {
+		return true
+	}
+	if _, account, ok := strings.Cut(host, "."); ok && strings.HasSuffix(account, ".r2.cloudflarestorage.com") {
+		return allowedDownloadHosts[account]
 	}
 	return false
 }

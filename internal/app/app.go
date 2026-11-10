@@ -118,16 +118,19 @@ func buildEnv(sv store.Server) []string {
 			}
 		}
 	}
-	if runtime.GOOS == "linux" {
-		// libnode.so ships next to the server binary.
-		env = append(env, "LD_LIBRARY_PATH="+sv.Dir)
-	}
 	for _, e := range sv.Env {
+		if ReservedEnvKey(e.Key) {
+			continue // e.g. imported from an old .env; never passed on
+		}
 		v := e.Value
 		if e.Secret {
 			v = secret.MustOpen(e.Value)
 		}
 		env = append(env, e.Key+"="+v)
+	}
+	if runtime.GOOS == "linux" {
+		// libnode.so ships next to the server binary. Added last so nothing above can replace it.
+		env = append(env, "LD_LIBRARY_PATH="+sv.Dir)
 	}
 	return env
 }
@@ -286,6 +289,9 @@ func (a *App) UpdateGame(id, version, user string) (*Job, error) {
 		return nil, store.ErrNotFound
 	}
 	g, _ := games.ByID(sv.Game)
+	if version != "" && !validVersion.MatchString(version) {
+		return nil, errors.New("invalid version")
+	}
 	return a.Jobs.Start("gameUpdate", id, func(ctx context.Context, j *Job) (any, error) {
 		p := a.Proc(id)
 		wasUp := p.Status().State == supervisor.Running || p.Status().State == supervisor.Starting
@@ -302,7 +308,15 @@ func (a *App) UpdateGame(id, version, user string) (*Job, error) {
 		if err != nil {
 			p.Panelf("Update failed: %v", err)
 			a.Store.Audit(user, "game.updateFailed", sv.Name, map[string]string{"error": err.Error()})
-			a.Notify(notify.Event{Kind: "game.failed", ServerID: id, Server: sv.Name, Link: "/servers/" + id + "/updates", Fields: []notify.Field{{Label: "f.installed", Value: sv.Version}, {Label: "f.target", Value: version}, {Label: "f.error", Value: notify.Redact(err.Error())}}})
+			// The error can name folders on this machine; Discord gets a pointer to the console instead.
+			a.Notify(notify.Event{Kind: "game.failed", ServerID: id, Server: sv.Name, Link: "/servers/" + id + "/updates", Fields: []notify.Field{{Label: "f.installed", Value: sv.Version}, {Label: "f.target", Value: version}, {Label: "f.error", Value: "@seeConsole"}}})
+			// The previous version is still in place: bring the server back if it was running.
+			_ = p.SetUpdating(false)
+			if wasUp {
+				if serr := p.Start(); serr != nil {
+					p.Panelf("Couldn't start the server again: %v", serr)
+				}
+			}
 			return nil, err
 		}
 		_ = a.Store.UpdateServer(id, func(s *store.Server) error { s.Version = v; return nil })

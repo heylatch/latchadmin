@@ -5,7 +5,9 @@ import (
 	"bytes"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -99,5 +101,32 @@ func TestGlobMatch(t *testing.T) {
 		if got := GlobMatch([]string{"config.json", "data/**", "*.config.json"}, rel); got != want {
 			t.Errorf("%s: got %v", rel, got)
 		}
+	}
+}
+
+// A Windows junction inside the target must stop extraction: Go reports junctions as irregular files, not links.
+func TestExtractRefusesJunction(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("junctions are Windows only")
+	}
+	dest, outside := t.TempDir(), t.TempDir()
+	if err := exec.Command("cmd", "/c", "mklink", "/J", filepath.Join(dest, "sub"), outside).Run(); err != nil {
+		t.Skipf("mklink /J: %v", err)
+	}
+	_, err := Extract(makeZip(t, map[string]string{"sub/pwned.txt": "x"}, nil), dest, Options{})
+	if !errors.Is(err, ErrUnsafe) {
+		t.Fatalf("want ErrUnsafe, got %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(outside, "pwned.txt")); err == nil {
+		t.Fatal("wrote through the junction")
+	}
+}
+
+func TestKeepIgnoresCaseOnWindows(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("case-insensitive file names are a Windows thing")
+	}
+	if !GlobMatch([]string{"config.json"}, "Config.JSON") {
+		t.Fatal("Config.JSON should match config.json")
 	}
 }

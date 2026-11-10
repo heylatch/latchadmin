@@ -31,12 +31,22 @@ const (
 )
 
 // HashPassword returns an encoded argon2id hash.
+// argonSlots caps how many password hashes run at once. Each takes 64 MB, so a burst of sign-in requests would
+// otherwise use gigabytes of memory.
+var argonSlots = make(chan struct{}, 4)
+
+func argonKey(pw, salt []byte, t, m uint32, th uint8, n uint32) []byte {
+	argonSlots <- struct{}{}
+	defer func() { <-argonSlots }()
+	return argon2.IDKey(pw, salt, t, m, th, n)
+}
+
 func HashPassword(pw string) (string, error) {
 	salt := make([]byte, 16)
 	if _, err := rand.Read(salt); err != nil {
 		return "", err
 	}
-	key := argon2.IDKey([]byte(pw), salt, argonTime, argonMemory, argonThreads, argonKeyLen)
+	key := argonKey([]byte(pw), salt, argonTime, argonMemory, argonThreads, argonKeyLen)
 	return fmt.Sprintf("$argon2id$v=19$m=%d,t=%d,p=%d$%s$%s", argonMemory, argonTime, argonThreads,
 		base64.RawStdEncoding.EncodeToString(salt), base64.RawStdEncoding.EncodeToString(key)), nil
 }
@@ -57,7 +67,10 @@ func CheckPassword(encoded, pw string) bool {
 	if err1 != nil || err2 != nil {
 		return false
 	}
-	got := argon2.IDKey([]byte(pw), salt, t, m, th, uint32(len(want)))
+	if m > argonMemory || t > 10 || len(want) > 64 {
+		return false // only hashes this panel made; never let stored data ask for more memory
+	}
+	got := argonKey([]byte(pw), salt, t, m, th, uint32(len(want)))
 	return subtle.ConstantTimeCompare(got, want) == 1
 }
 
@@ -131,18 +144,28 @@ func totpAt(secret string, step int64) (string, error) {
 
 // CheckTOTP accepts the code for now and one step either side.
 func CheckTOTP(secret, code string) bool {
+	_, ok := MatchTOTP(secret, code, 0)
+	return ok
+}
+
+// MatchTOTP checks a code and returns its time step. Steps at or before after are refused, so a code that was
+// already used (it stays valid for about 90 seconds) can't sign in a second time.
+func MatchTOTP(secret, code string, after int64) (int64, bool) {
 	code = strings.ReplaceAll(strings.TrimSpace(code), " ", "")
 	if len(code) != 6 || len(strings.TrimSpace(secret)) < 16 {
-		return false
+		return 0, false
 	}
 	step := time.Now().Unix() / 30
 	for d := int64(-1); d <= 1; d++ {
+		if step+d <= after {
+			continue
+		}
 		want, err := totpAt(secret, step+d)
 		if err == nil && subtle.ConstantTimeCompare([]byte(want), []byte(code)) == 1 {
-			return true
+			return step + d, true
 		}
 	}
-	return false
+	return 0, false
 }
 
 // ---------- Setup PIN ----------
@@ -227,6 +250,34 @@ func (l *Limiter) Blocked(key string) (bool, time.Duration) {
 		return true, l.window - now.Sub(h[0])
 	}
 	return false, 0
+}
+
+// Take counts an attempt and reports whether it may go ahead. Checking and counting happen under one lock, so a
+// burst of parallel requests can't all slip past the limit before the first failure is recorded. Call Refund when
+// the attempt succeeds.
+func (l *Limiter) Take(key string) (bool, time.Duration) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	now := time.Now()
+	h := l.prune(key, now)
+	if len(h) >= l.max {
+		return false, l.window - now.Sub(h[0])
+	}
+	l.hits[key] = append(h, now)
+	return true, 0
+}
+
+// Refund takes back the newest attempt (it succeeded).
+func (l *Limiter) Refund(key string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if h := l.hits[key]; len(h) > 0 {
+		if h = h[:len(h)-1]; len(h) == 0 {
+			delete(l.hits, key)
+		} else {
+			l.hits[key] = h
+		}
+	}
 }
 
 // Fail records a failure.

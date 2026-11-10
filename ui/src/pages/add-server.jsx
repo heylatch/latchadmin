@@ -19,13 +19,17 @@ import { formatBytes } from "@/lib/format"
 import { useCan } from "@/lib/session"
 import { cn } from "@/lib/utils"
 
-function ModeCard({ active, icon: Icon, title, text, onClick }) {
+function ModeCard({ active, icon: Icon, title, text, onClick, disabled }) {
   return (
     <button
       type="button"
       onClick={onClick}
       aria-pressed={active}
-      className={cn("flex items-start gap-3 rounded-xl border p-4 text-left transition-colors hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none", active && "border-foreground/40 bg-muted/50")}
+      disabled={disabled}
+      className={cn(
+        "flex items-start gap-3 rounded-xl border p-4 text-left transition-colors hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-transparent",
+        active && "border-foreground/40 bg-muted/50"
+      )}
     >
       <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted">
         <Icon className="size-4" aria-hidden="true" />
@@ -371,13 +375,23 @@ function ImportForm() {
 export default function AddServerPage() {
   const { t } = useTranslation()
   const [params, setParams] = useSearchParams()
-  const mode = params.get("mode") === "import" ? "import" : "install"
+  const can = useCan()
+  // Adding an existing folder runs the binary found in it, so only accounts with every permission may do it.
+  const canImport = can("all")
+  const mode = canImport && params.get("mode") === "import" ? "import" : "install"
   return (
     <div className="space-y-6">
       <PageHeader title={t("nav.addServer")} description={t("add.text")} />
       <div className="grid gap-3 sm:grid-cols-2">
         <ModeCard active={mode === "install"} icon={DownloadIcon} title={t("add.installTitle")} text={t("add.installCard")} onClick={() => setParams({ mode: "install" }, { replace: true })} />
-        <ModeCard active={mode === "import"} icon={FolderInputIcon} title={t("add.importTitle")} text={t("add.importCard")} onClick={() => setParams({ mode: "import" }, { replace: true })} />
+        <ModeCard
+          active={mode === "import"}
+          icon={FolderInputIcon}
+          title={t("add.importTitle")}
+          text={canImport ? t("add.importCard") : t("add.importOwnerOnly")}
+          disabled={!canImport}
+          onClick={() => setParams({ mode: "import" }, { replace: true })}
+        />
       </div>
       <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
         {mode === "install" ? <InstallForm /> : <ImportForm />}

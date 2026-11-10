@@ -13,6 +13,14 @@ import (
 
 // ---------- Public status boards ----------
 
+func boardServers(b store.StatusBoard) []string {
+	ids := make([]string, 0, len(b.Servers))
+	for _, e := range b.Servers {
+		ids = append(ids, e.ServerID)
+	}
+	return ids
+}
+
 func boardView(b store.StatusBoard) map[string]any {
 	servers, buttons := b.Servers, b.Buttons
 	if servers == nil {
@@ -25,11 +33,13 @@ func boardView(b store.StatusBoard) map[string]any {
 		"servers": servers, "buttons": buttons, "enabled": b.Enabled, "posted": b.MessageID != "", "lastSentAt": b.LastSentAt, "lastError": b.LastError}
 }
 
-func (s *Server) listBoards(w http.ResponseWriter, r *http.Request, _ ctxUser) error {
+func (s *Server) listBoards(w http.ResponseWriter, r *http.Request, u ctxUser) error {
 	out := []map[string]any{}
 	s.App.Store.Read(func(st *store.State) {
 		for _, b := range st.StatusBoards {
-			out = append(out, boardView(b))
+			if inScope(u, boardServers(b), false) {
+				out = append(out, boardView(b))
+			}
 		}
 	})
 	writeJSON(w, 200, map[string]any{"boards": out})
@@ -139,7 +149,7 @@ func (s *Server) saveBoard(w http.ResponseWriter, r *http.Request, u ctxUser) er
 		}
 		for i := range st.StatusBoards {
 			b := &st.StatusBoards[i]
-			if b.ID != id {
+			if b.ID != id || !inScope(u, boardServers(*b), false) {
 				continue
 			}
 			b.Name, b.Lang, b.Title, b.Note, b.Servers, b.Buttons, b.Enabled = in.Name, in.Lang, in.Title, in.Note, servers, buttons, in.Enabled
@@ -186,7 +196,7 @@ func (s *Server) deleteBoard(w http.ResponseWriter, r *http.Request, u ctxUser) 
 	var removed store.StatusBoard
 	if err := s.App.Store.Update(func(st *store.State) error {
 		for i, b := range st.StatusBoards {
-			if b.ID == id {
+			if b.ID == id && inScope(u, boardServers(b), false) {
 				removed = b
 				st.StatusBoards = append(st.StatusBoards[:i], st.StatusBoards[i+1:]...)
 				return nil
@@ -203,7 +213,7 @@ func (s *Server) deleteBoard(w http.ResponseWriter, r *http.Request, u ctxUser) 
 }
 
 // refreshBoard edits the message now, or with Repost sends it again at the bottom of the channel.
-func (s *Server) refreshBoard(w http.ResponseWriter, r *http.Request, _ ctxUser) error {
+func (s *Server) refreshBoard(w http.ResponseWriter, r *http.Request, u ctxUser) error {
 	var in struct{ Repost bool }
 	if r.ContentLength > 0 {
 		if err := decode(r, &in); err != nil {
@@ -211,6 +221,15 @@ func (s *Server) refreshBoard(w http.ResponseWriter, r *http.Request, _ ctxUser)
 		}
 	}
 	id := r.PathValue("bid")
+	visible := false
+	s.App.Store.Read(func(st *store.State) {
+		for _, b := range st.StatusBoards {
+			visible = visible || (b.ID == id && inScope(u, boardServers(b), false))
+		}
+	})
+	if !visible {
+		return errNotFound
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 	if err := s.App.RefreshBoard(ctx, id, in.Repost); err != nil {

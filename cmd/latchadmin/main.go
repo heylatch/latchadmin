@@ -33,8 +33,13 @@ func main() {
 	port := flag.Int("port", 40120, "port for the web panel")
 	cert := flag.String("tls-cert", "", "TLS certificate file (serve HTTPS)")
 	key := flag.String("tls-key", "", "TLS key file")
+	proxies := flag.String("trusted-proxy", "", "reverse proxy addresses or CIDR ranges whose X-Forwarded-For/-Proto headers are trusted, comma-separated")
 	version := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
+	if err := web.TrustProxies(*proxies); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
 	if *version {
 		fmt.Println(buildinfo.Version)
 		return

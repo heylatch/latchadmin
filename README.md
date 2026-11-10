@@ -100,7 +100,7 @@ Don't run it as root. The service user must be able to write to `/opt/latchadmin
 The panel listens on port **40120** on every network interface. Open that TCP port in the firewall to reach it from home, and use HTTPS before signing in over the internet:
 
 - pass `--tls-cert` and `--tls-key` with your certificate, or
-- put it behind a reverse proxy that handles HTTPS (Caddy, nginx), or
+- put it behind a reverse proxy that handles HTTPS (Caddy, nginx) and pass `--trusted-proxy 127.0.0.1`, or
 - keep it private with `--host 127.0.0.1` and reach it through an SSH tunnel: `ssh -L 40120:127.0.0.1:40120 your-server`.
 
 ## Adding a server
@@ -137,6 +137,8 @@ The first account has all permissions. Under **Users** you can add people with e
 
 Each user also gets access to all servers or only chosen ones; other servers don't appear for them at all. Nobody can give a permission or a server they don't have themselves.
 
+Game servers run as the same system account as the panel, so *manage resources*, *edit configuration* and *add servers* let someone run code on the machine. Give them only to people you'd trust with it. Adding an existing server folder needs every permission.
+
 ## Discord
 
 Both kinds of message use a Discord webhook (Discord: Server settings → Integrations → Webhooks → New webhook → Copy webhook URL) and can be in English or Turkish. Webhook URLs are stored encrypted.
@@ -159,6 +161,7 @@ Both kinds of message use a Discord webhook (Discord: Server settings → Integr
 | `--host` | `0.0.0.0` | `127.0.0.1` makes the panel reachable from this machine only |
 | `--data` | `latchadmin-data` next to the binary | Settings, users, logs, statistics |
 | `--tls-cert`, `--tls-key` | | Serve HTTPS with your certificate |
+| `--trusted-proxy` | | Address or CIDR range of your reverse proxy, so sign-in limits and the audit log see visitors' real addresses |
 | `--version` | | Print the version and exit |
 
 Everything the panel keeps is in the data folder: `latchadmin.json` (settings and users, secrets encrypted), `secret.key` (protected with Windows DPAPI or `0600`), `audit.jsonl`, `metrics.json.gz` and the daily console logs. Back it up together with your server folders.
@@ -175,7 +178,7 @@ Everything the panel keeps is in the data folder: `latchadmin.json` (settings an
 LatchAdmin is open source so you can check exactly what it does:
 
 - It only connects to `api.heylatch.app`, `api.mafiahub.dev`, GitHub and their download hosts, and the Discord webhooks you add. The list is in [`internal/netx/netx.go`](internal/netx/netx.go) and is enforced on every request and redirect.
-- **Latch can't reach your panel or your servers.** The panel calls Latch, never the other way round, and nothing Latch answers is run.
+- **Latch can't reach your panel or your servers.** The panel calls Latch, never the other way round, and no command comes from Latch. Latch scripts are code and run on your server, but only the versions you install (or chose to update automatically).
 - Panel updates install only when their Ed25519 signature checks out against the key built into the binary.
 - What the panel tells Latch (only while an account is linked) is in [docs/TELEMETRY.md](docs/TELEMETRY.md); the panel shows the exact report on its Latch page.
 

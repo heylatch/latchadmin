@@ -34,26 +34,6 @@ type NewServer struct {
 	Token    string `json:"token"`   // optional MafiaHub server token
 }
 
-func cleanDir(dir string) (string, error) {
-	dir = strings.TrimSpace(dir)
-	if dir == "" || !filepath.IsAbs(dir) {
-		return "", errors.New("enter a full folder path")
-	}
-	return filepath.Clean(dir), nil
-}
-
-func (a *App) dirInUse(dir string) bool {
-	used := false
-	a.Store.Read(func(st *store.State) {
-		for _, sv := range st.Servers {
-			if strings.EqualFold(filepath.Clean(sv.Dir), dir) {
-				used = true
-			}
-		}
-	})
-	return used
-}
-
 func validName(n string) error {
 	if n = strings.TrimSpace(n); n == "" || len(n) > 60 {
 		return errors.New("name must be 1 to 60 characters")
@@ -74,8 +54,8 @@ func (a *App) InstallServer(in NewServer, user string, onCreated func(id string)
 	if err != nil {
 		return nil, err
 	}
-	if a.dirInUse(dir) {
-		return nil, errors.New("another server already uses this folder")
+	if err := a.folderClash(dir); err != nil {
+		return nil, err
 	}
 	a.mu.Lock()
 	if a.installing == nil {
@@ -204,8 +184,8 @@ func (a *App) ImportServer(dir, name, game, exe, user string) (store.Server, err
 	if err := validName(name); err != nil {
 		return store.Server{}, err
 	}
-	if a.dirInUse(p.Dir) {
-		return store.Server{}, errors.New("another server already uses this folder")
+	if err := a.folderClash(p.Dir); err != nil {
+		return store.Server{}, err
 	}
 	env, _ := readEnvFiles(p.Dir)
 	for i := range env {
@@ -245,6 +225,29 @@ func IsSecretKey(k string) bool { return secretKeyRe.MatchString(k) }
 
 // ValidEnvKey checks an environment variable name.
 func ValidEnvKey(k string) bool { return envKeyRe.MatchString(k) }
+
+// Variables that change how the server binary loads code or which programs it finds. A panel user who can edit
+// variables must not be able to point the server at a library they uploaded as a resource.
+var reservedEnv = map[string]bool{
+	"PATH": true, "PATHEXT": true, "SYSTEMROOT": true, "WINDIR": true, "COMSPEC": true, "PSMODULEPATH": true,
+	"NODE_OPTIONS": true, "NODE_PATH": true, "NODE_EXTRA_CA_CERTS": true, "NODE_TLS_REJECT_UNAUTHORIZED": true,
+	"NODE_REPL_EXTERNAL_MODULE": true,
+}
+var reservedPrefixes = []string{"LD_", "DYLD_", "COR_", "COMPLUS_", "DOTNET_", "CORECLR_", "MALLOC_", "GCONV_"}
+
+// ReservedEnvKey reports whether a variable can't be set from the panel.
+func ReservedEnvKey(k string) bool {
+	k = strings.ToUpper(k)
+	if reservedEnv[k] {
+		return true
+	}
+	for _, p := range reservedPrefixes {
+		if strings.HasPrefix(k, p) {
+			return true
+		}
+	}
+	return false
+}
 
 // readEnvFiles reads KEY=VALUE files a start script would load (server.env, .env, latch.env, in that order;
 // later files don't override earlier ones).
@@ -351,6 +354,13 @@ func Browse(path string) (DirListing, error) {
 const tokenMask = "********"
 const tokenKey = "server-token"
 
+// secretKey reports whether a server.json value is a secret ("server-token", "package-secret"): the editor shows
+// it masked, and saving the mask keeps the stored value.
+func secretKey(k string) bool {
+	k = strings.ToLower(k)
+	return strings.Contains(k, "token") || strings.Contains(k, "secret")
+}
+
 func readConfigMap(dir string) (map[string]any, error) {
 	raw, err := os.ReadFile(filepath.Join(dir, "server.json"))
 	if errors.Is(err, os.ErrNotExist) {
@@ -387,14 +397,16 @@ func ReadConfig(dir string) (json.RawMessage, error) {
 		if rerr != nil {
 			return nil, err
 		}
-		// Broken JSON is shown as is so it can be fixed; a token in it can't be masked reliably, so refuse.
-		if strings.Contains(string(raw), tokenKey) {
+		// Broken JSON is shown as is so it can be fixed; a secret in it can't be masked reliably, so refuse.
+		if low := strings.ToLower(string(raw)); strings.Contains(low, "token") || strings.Contains(low, "secret") {
 			return nil, err
 		}
 		return raw, nil
 	}
-	if s, _ := m[tokenKey].(string); s != "" {
-		m[tokenKey] = tokenMask
+	for k, v := range m {
+		if s, ok := v.(string); ok && s != "" && secretKey(k) {
+			m[k] = tokenMask
+		}
 	}
 	return json.MarshalIndent(m, "", "  ")
 }
@@ -415,7 +427,14 @@ func SetToken(dir, token string) error {
 		m[tokenKey] = token
 	}
 	pretty, _ := json.MarshalIndent(m, "", "  ")
-	return saveWithBackup(filepath.Join(dir, "server.json"), pretty)
+	p := filepath.Join(dir, "server.json")
+	if err := saveWithBackup(p, pretty); err != nil {
+		return err
+	}
+	if token == "" {
+		_ = os.Remove(p + ".bak") // the backup still holds the token that was just removed
+	}
+	return nil
 }
 
 // WriteConfig validates and saves server.json, keeping the previous one as server.json.bak.
@@ -424,13 +443,15 @@ func WriteConfig(dir string, raw []byte) error {
 	if err := json.Unmarshal(raw, &v); err != nil {
 		return fmt.Errorf("not valid JSON: %w", err)
 	}
-	// The editor shows the token masked; saving the mask keeps the stored token.
-	if s, _ := v[tokenKey].(string); s == tokenMask {
-		old, _ := readConfigMap(dir)
-		if t, ok := old[tokenKey]; ok {
-			v[tokenKey] = t
-		} else {
-			delete(v, tokenKey)
+	// The editor shows secrets masked; saving the mask keeps the stored value.
+	old, _ := readConfigMap(dir)
+	for k, val := range v {
+		if s, _ := val.(string); s == tokenMask && secretKey(k) {
+			if t, ok := old[k]; ok {
+				v[k] = t
+			} else {
+				delete(v, k)
+			}
 		}
 	}
 	if p, ok := v["port"]; ok {
@@ -444,10 +465,11 @@ func WriteConfig(dir string, raw []byte) error {
 
 func saveWithBackup(path string, data []byte) error {
 	if old, err := os.ReadFile(path); err == nil {
-		_ = os.WriteFile(path+".bak", old, 0o644)
+		_ = os.WriteFile(path+".bak", old, 0o600)
 	}
+	// 0600: server.json holds the server token, and other users on the machine have no business reading it.
 	tmp := path + ".latchadmin-tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
 		return err
 	}
 	return os.Rename(tmp, path)

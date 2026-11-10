@@ -117,6 +117,7 @@ export default {
     installText: "LatchAdmin downloads only the server files (not the game client) and sets the port.",
     importTitle: "Use an existing server",
     importCard: "Pick a folder with your server files. Nothing in it is changed.",
+    importOwnerOnly: "Needs every permission: the panel runs the program it finds in that folder.",
     importText: "LatchAdmin finds the game, the port and the variables your start script used.",
     game: "Game",
     gameHelp: "Latest release: {{version}}.",
@@ -648,7 +649,7 @@ export default {
       },
       "server.add": {
         label: "Add servers",
-        help: "Install new servers or add existing folders. Lets them browse folders on this machine.",
+        help: "Install new servers into empty folders. Gives a way to run code on this machine: only for people you trust with it.",
       },
       "server.remove": {
         label: "Remove servers",
@@ -664,7 +665,7 @@ export default {
       },
       "resources.manage": {
         label: "Manage resources",
-        help: "Upload, enable, disable, restart and remove resources.",
+        help: "Upload, enable, disable, restart and remove resources. Resources are code that runs on this machine: only for people you trust with it.",
       },
       "config.view": {
         label: "See configuration",
@@ -672,7 +673,7 @@ export default {
       },
       "config.edit": {
         label: "Edit configuration",
-        help: "Change server.json, data files and variables.",
+        help: "Change server.json, data files and variables. Can change how servers run: only for people you trust with the machine.",
       },
       "updates.game": {
         label: "Game updates",

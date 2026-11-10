@@ -124,7 +124,7 @@ func noLink(p string) error {
 	if err != nil {
 		return err
 	}
-	if info.Mode()&os.ModeSymlink != 0 {
+	if archive.IsLink(info) {
 		return fmt.Errorf("%s is a link; LatchAdmin won't move it", filepath.Base(p))
 	}
 	return nil

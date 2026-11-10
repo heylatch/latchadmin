@@ -9,6 +9,8 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
+	"runtime"
 	"strings"
 )
 
@@ -97,6 +99,37 @@ type Result struct {
 	Bytes int64
 }
 
+// IsLink reports whether a file is a symlink or (on Windows) a junction or other reparse point. Go reports
+// junctions as irregular files, not symlinks, and EvalSymlinks doesn't resolve them, so both bits matter.
+func IsLink(fi os.FileInfo) bool { return fi.Mode()&(os.ModeSymlink|os.ModeIrregular) != 0 }
+
+// throughLink reports whether any existing folder from dest down to dir is a link.
+func throughLink(dest, dir string) bool {
+	rel, err := filepath.Rel(dest, dir)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		return true
+	}
+	cur := dest
+	for _, part := range append([]string{"."}, strings.Split(rel, string(filepath.Separator))...) {
+		if part != "." {
+			cur = filepath.Join(cur, part)
+		}
+		fi, err := os.Lstat(cur)
+		if err != nil {
+			return false // not there yet: MkdirAll makes a real folder
+		}
+		if IsLink(fi) {
+			return true
+		}
+	}
+	return false
+}
+
+// MaxFiles caps the number of entries, so an archive can't fill a disk with millions of empty files.
+const MaxFiles = 20000
+
+var shortName = regexp.MustCompile(`~\d`)
+
 // Extract writes the archive into dest. dest must already exist and must not be a link.
 func Extract(r *zip.Reader, dest string, opt Options) (Result, error) {
 	var res Result
@@ -108,10 +141,17 @@ func Extract(r *zip.Reader, dest string, opt Options) (Result, error) {
 	if err != nil {
 		return res, err
 	}
+	if len(r.File) > MaxFiles {
+		return res, fmt.Errorf("%w: more than %d files", ErrUnsafe, MaxFiles)
+	}
 	for _, f := range r.File {
 		name, err := CleanName(f.Name)
 		if err != nil {
 			return res, err
+		}
+		// On Windows "CONFIG~1.JSO" can be another name for config.json, getting past the keep rules.
+		if runtime.GOOS == "windows" && shortName.MatchString(name) {
+			return res, fmt.Errorf("%w: %q looks like a short (8.3) file name", ErrUnsafe, f.Name)
 		}
 		if !strings.HasPrefix(name, opt.Prefix) || strings.HasSuffix(name, "/") {
 			continue
@@ -125,8 +165,11 @@ func Extract(r *zip.Reader, dest string, opt Options) (Result, error) {
 			return res, fmt.Errorf("%w: %q is not a regular file", ErrUnsafe, f.Name)
 		}
 		out := filepath.Join(dest, filepath.FromSlash(rel))
+		if throughLink(dest, filepath.Dir(out)) {
+			return res, fmt.Errorf("%w: %s goes through a link", ErrUnsafe, out)
+		}
 		if info, err := os.Lstat(out); err == nil {
-			if info.Mode()&os.ModeSymlink != 0 {
+			if IsLink(info) {
 				return res, fmt.Errorf("%w: %s is a link", ErrUnsafe, out)
 			}
 			if opt.Keep != nil && opt.Keep(rel) {
@@ -191,9 +234,16 @@ func writeEntry(f *zip.File, out string, budget int64) (int64, error) {
 	return n, nil
 }
 
-// GlobMatch matches rel against simple globs: exact, "dir/**", "dir/*", or "*" wildcards.
+// GlobMatch matches rel against simple globs: exact, "dir/**", "dir/*", or "*" wildcards. On Windows file names
+// are case-insensitive, so the match is too ("Config.json" is the same file as "config.json").
 func GlobMatch(globs []string, rel string) bool {
+	if runtime.GOOS == "windows" {
+		rel = strings.ToLower(rel)
+	}
 	for _, g := range globs {
+		if runtime.GOOS == "windows" {
+			g = strings.ToLower(g)
+		}
 		switch {
 		case g == rel:
 			return true

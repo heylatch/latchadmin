@@ -74,8 +74,9 @@ func (s *Server) routes() {
 	m.HandleFunc("GET /api/games", s.api(signedIn, s.games))
 	m.HandleFunc("GET /api/servers", s.api(signedIn, s.listServers))
 	m.HandleFunc("POST /api/servers", s.api("server.add", s.installServer))
-	m.HandleFunc("POST /api/servers/import/preview", s.api("server.add", s.importPreview))
-	m.HandleFunc("POST /api/servers/import", s.api("server.add", s.importServer))
+	// Importing runs whatever binary sits in the chosen folder, so it needs every permission (like the folder browser).
+	m.HandleFunc("POST /api/servers/import/preview", s.api(perms.All, s.importPreview))
+	m.HandleFunc("POST /api/servers/import", s.api(perms.All, s.importServer))
 	m.HandleFunc("GET /api/servers/{id}", s.api(signedIn, s.getServer))
 	m.HandleFunc("PATCH /api/servers/{id}", s.api("server.settings", s.patchServer))
 	m.HandleFunc("DELETE /api/servers/{id}", s.api("server.remove", s.deleteServer))
@@ -143,12 +144,15 @@ func (s *Server) setup(w http.ResponseWriter, r *http.Request, _ ctxUser) error 
 		return fail(409, "done", "Setup is already finished. Sign in.")
 	}
 	ip := clientIP(r)
-	if blocked, _ := s.setups.Blocked(ip); blocked {
+	if s.setupFails.Load() >= maxSetupFails {
+		return fail(423, "setupLocked", "Setup is locked after too many wrong PINs. Restart LatchAdmin to get a new PIN.")
+	}
+	if ok, _ := s.setups.Take(limitKey(ip)); !ok {
 		return fail(429, "rateLimited", "Too many tries. Wait a few minutes.")
 	}
 	ok, rotated := s.App.PIN.Check(in.PIN)
 	if !ok {
-		s.setups.Fail(ip)
+		s.setupFails.Add(1)
 		if rotated != "" && s.OnPIN != nil {
 			s.OnPIN(rotated)
 			return fail(400, "pinRotated", "Too many wrong PINs. A new PIN is in the panel's console.")
@@ -190,8 +194,13 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request, _ ctxUser) error 
 		return err
 	}
 	ip := clientIP(r)
-	if blocked, wait := s.logins.Blocked(ip); blocked {
+	// Every attempt is counted before the password is hashed; a successful one is refunded below.
+	ipKey, nameKey := limitKey(ip), strings.ToLower(strings.TrimSpace(in.Username))
+	if ok, wait := s.logins.Take(ipKey); !ok {
 		return fail(429, "rateLimited", fmt.Sprintf("Too many failed sign-ins. Try again in %d minutes.", int(wait.Minutes())+1))
+	}
+	if ok, wait := s.names.Take(nameKey); !ok {
+		return fail(429, "rateLimited", fmt.Sprintf("Too many failed sign-ins for this account. Try again in %d minutes.", int(wait.Minutes())+1))
 	}
 	var u store.User
 	found := false
@@ -208,7 +217,6 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request, _ ctxUser) error 
 		hash = "$argon2id$v=19$m=65536,t=2,p=2$c2FsdHNhbHRzYWx0c2FsdA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 	}
 	if !auth.CheckPassword(hash, in.Password) || !found {
-		s.logins.Fail(ip)
 		s.App.Store.Audit(in.Username, "login.failed", "", map[string]string{"ip": ip})
 		return fail(401, "badLogin", "Wrong username or password.")
 	}
@@ -221,11 +229,21 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request, _ ctxUser) error 
 			// Never fall back to "no 2FA" when the secret can't be read (e.g. data copied to another account).
 			return fail(401, "totpUnreadable", "Two-factor settings can't be read on this machine. Ask an owner to reset your 2FA.")
 		}
-		if !auth.CheckTOTP(sec, in.Code) {
-			s.logins.Fail(ip)
-			return fail(401, "badCode", "That code is wrong or expired.")
+		step, ok := auth.MatchTOTP(sec, in.Code, u.TOTPLastStep)
+		if !ok {
+			return fail(401, "badCode", "That code is wrong, expired or already used.")
 		}
+		_ = s.App.Store.Update(func(st *store.State) error {
+			for i := range st.Users {
+				if st.Users[i].ID == u.ID && st.Users[i].TOTPLastStep < step {
+					st.Users[i].TOTPLastStep = step
+				}
+			}
+			return nil
+		})
 	}
+	s.logins.Refund(ipKey)
+	s.names.Refund(nameKey)
 	s.App.Store.Audit(u.Username, "login", "", map[string]string{"ip": ip})
 	if err := s.newSession(w, r, u.ID); err != nil {
 		return err
@@ -1307,6 +1325,9 @@ func (s *Server) putEnv(w http.ResponseWriter, r *http.Request, u ctxUser) error
 		if !app.ValidEnvKey(e.Key) {
 			return fail(400, "badKey", fmt.Sprintf("%q isn't a valid variable name (letters, numbers, underscores).", e.Key))
 		}
+		if app.ReservedEnvKey(e.Key) {
+			return fail(400, "reservedKey", e.Key+" can't be set here: it changes how the server program loads code.")
+		}
 		if seen[e.Key] {
 			return fail(400, "duplicate", e.Key+" appears twice.")
 		}
@@ -1326,7 +1347,9 @@ func (s *Server) putEnv(w http.ResponseWriter, r *http.Request, u ctxUser) error
 		case e.Secret && old[e.Key].Secret:
 			value = old[e.Key].Value
 		case old[e.Key].Secret && !e.Secret:
-			value = secret.MustOpen(old[e.Key].Value) // un-marking a secret keeps its value, now readable
+			// Secrets are write-only: showing one needs its value typed again, or anyone with config.edit could
+			// read every secret by un-marking it.
+			return fail(400, "secretValueNeeded", e.Key+": enter the value again to stop keeping it secret.")
 		default:
 			value = old[e.Key].Value
 		}
@@ -1635,11 +1658,31 @@ func webhookView(w store.Webhook) map[string]any {
 		"servers": servers, "enabled": w.Enabled, "lastSentAt": w.LastSentAt, "lastError": w.LastError}
 }
 
-func (s *Server) listWebhooks(w http.ResponseWriter, r *http.Request, _ ctxUser) error {
+// inScope reports whether a user may see and change a webhook or status board covering these servers. One that
+// reaches a server they can't access doesn't exist for them, like the server itself. allIfEmpty: an empty list
+// means every server (webhooks), which needs access to all servers.
+func inScope(u ctxUser, servers []string, allIfEmpty bool) bool {
+	if u.AllServers || perms.Has(u.Permissions, perms.All) {
+		return true
+	}
+	if len(servers) == 0 {
+		return !allIfEmpty
+	}
+	for _, id := range servers {
+		if !u.CanServer(id) {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *Server) listWebhooks(w http.ResponseWriter, r *http.Request, u ctxUser) error {
 	out := []map[string]any{}
 	s.App.Store.Read(func(st *store.State) {
 		for _, h := range st.Webhooks {
-			out = append(out, webhookView(h))
+			if inScope(u, h.Servers, true) {
+				out = append(out, webhookView(h))
+			}
 		}
 	})
 	writeJSON(w, 200, map[string]any{"webhooks": out, "groups": notify.Groups})
@@ -1702,7 +1745,7 @@ func (s *Server) saveWebhook(w http.ResponseWriter, r *http.Request, u ctxUser) 
 			return nil
 		}
 		for i := range st.Webhooks {
-			if st.Webhooks[i].ID == id {
+			if st.Webhooks[i].ID == id && inScope(u, st.Webhooks[i].Servers, true) {
 				h := &st.Webhooks[i]
 				h.Name, h.Lang, h.Events, h.Servers, h.Enabled = in.Name, in.Lang, events, servers, in.Enabled
 				if sealed != "" {
@@ -1727,7 +1770,7 @@ func (s *Server) deleteWebhook(w http.ResponseWriter, r *http.Request, u ctxUser
 	var name string
 	if err := s.App.Store.Update(func(st *store.State) error {
 		for i, h := range st.Webhooks {
-			if h.ID == id {
+			if h.ID == id && inScope(u, h.Servers, true) {
 				name = h.Name
 				st.Webhooks = append(st.Webhooks[:i], st.Webhooks[i+1:]...)
 				return nil
@@ -1750,7 +1793,7 @@ func (s *Server) testWebhook(w http.ResponseWriter, r *http.Request, u ctxUser) 
 	s.App.Store.Read(func(st *store.State) {
 		panel = st.Settings.PanelName
 		for _, h := range st.Webhooks {
-			if h.ID == id {
+			if h.ID == id && inScope(u, h.Servers, true) {
 				hook, found = h, true
 			}
 		}
