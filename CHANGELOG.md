@@ -2,7 +2,7 @@
 
 ## 0.1.1
 
-A security update. Please update; panels with the default "urgent updates" setting install it on their own.
+A security update. Please update: Settings > Panel update, or let a panel on the default "urgent updates" setting install it once the release is marked urgent.
 
 **Fixed**
 - A user who could add servers could register another server's folder under a different spelling (a trailing dot, `\?\`, a network path, an 8.3 short name) and reach that server's files and settings. Folders are now compared by identity, can't sit inside or around another server's folder or the panel's data, and adding an existing folder needs every permission, because the panel runs the program it finds there.
