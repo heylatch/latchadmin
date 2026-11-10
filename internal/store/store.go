@@ -113,7 +113,7 @@ func Open(dataDir string) (*Store, error) {
 	b, err := os.ReadFile(s.path)
 	switch {
 	case errors.Is(err, os.ErrNotExist):
-		s.st = State{InstanceID: NewID() + NewID(), Settings: Settings{PanelName: hostname(), SelfUpdate: "urgent", CheckLatch: true}}
+		s.st = State{InstanceID: NewID() + NewID(), Settings: Settings{PanelName: "LatchAdmin", SelfUpdate: "urgent", CheckLatch: true}}
 		return s, s.save()
 	case err != nil:
 		return nil, err
@@ -122,17 +122,6 @@ func Open(dataDir string) (*Store, error) {
 		return nil, errors.New("latchadmin.json is damaged: " + err.Error())
 	}
 	return s, nil
-}
-
-func hostname() string {
-	h, err := os.Hostname()
-	if err != nil || h == "" {
-		return "LatchAdmin"
-	}
-	if len(h) > 60 {
-		h = h[:60]
-	}
-	return h
 }
 
 // NewID returns 16 random hex characters.
