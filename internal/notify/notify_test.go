@@ -63,3 +63,51 @@ func TestMessage(t *testing.T) {
 		}
 	}
 }
+
+func TestStatusMessage(t *testing.T) {
+	n := 12
+	b := Board{Title: "Our *servers*", Note: "Open the launcher", At: time.Unix(1700000000, 0), Buttons: []Button{{Label: "Discord", URL: "https://discord.gg/x"}},
+		Servers: []BoardEntry{
+			{Name: "Main", Game: "Arcane MP 1.12.2", State: "online", Players: &n, MaxPlayers: 128, Address: "play.example.com:27015", Since: time.Unix(1699990000, 0)},
+			{Name: "Test", Game: "Arcane MP 1.12.2", State: "offline"},
+		}}
+	msg := StatusMessage(b, "en")
+	parts := msg["components"].([]map[string]any)
+	if len(parts) != 5 { // header, 2 servers, footer, buttons
+		t.Fatalf("parts %d", len(parts))
+	}
+	head := parts[0]["components"].([]map[string]any)[0]["content"].(string)
+	if !strings.Contains(head, `## Our \*servers\*`) || !strings.Contains(head, "**1** of 2 servers online · **12** players") {
+		t.Fatalf("head %q", head)
+	}
+	main := parts[1]["components"].([]map[string]any)[0]["content"].(string)
+	if parts[1]["accent_color"] != colorOnline || !strings.Contains(main, "**Players:** 12 / 128") || !strings.Contains(main, "`play.example.com:27015`") {
+		t.Fatalf("main %q", main)
+	}
+	if parts[2]["accent_color"] != colorOffline || strings.Contains(parts[2]["components"].([]map[string]any)[0]["content"].(string), "Players") {
+		t.Fatal("offline server shows players")
+	}
+	// The "updated" time alone doesn't count as a change.
+	later := b
+	later.At = b.At.Add(time.Hour)
+	if BoardHash(b, "en") != BoardHash(later, "en") {
+		t.Fatal("hash changes with time")
+	}
+	m := 13
+	later.Servers = append([]BoardEntry{}, b.Servers...)
+	later.Servers[0].Players = &m
+	if BoardHash(b, "en") == BoardHash(later, "en") {
+		t.Fatal("hash ignores players")
+	}
+	for _, k := range []string{"board.summary", "board.state.online", "board.state.restarting", "board.f.address", "board.updated"} {
+		if texts["tr"][k] == "" {
+			t.Errorf("tr: missing %s", k)
+		}
+	}
+	if !ValidAddress("[2001:db8::1]:27015") || ValidAddress("play.example.com:27015`") || ValidAddress("a b") {
+		t.Fatal("address check")
+	}
+	if ValidButtonURL("http://example.com") || !ValidButtonURL("https://discord.gg/abc") {
+		t.Fatal("button check")
+	}
+}

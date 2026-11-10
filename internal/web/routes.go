@@ -65,6 +65,11 @@ func (s *Server) routes() {
 	m.HandleFunc("PATCH /api/webhooks/{wid}", s.api("panel.settings", s.saveWebhook))
 	m.HandleFunc("DELETE /api/webhooks/{wid}", s.api("panel.settings", s.deleteWebhook))
 	m.HandleFunc("POST /api/webhooks/{wid}/test", s.api("panel.settings", s.testWebhook))
+	m.HandleFunc("GET /api/status-boards", s.api("panel.settings", s.listBoards))
+	m.HandleFunc("POST /api/status-boards", s.api("panel.settings", s.saveBoard))
+	m.HandleFunc("PATCH /api/status-boards/{bid}", s.api("panel.settings", s.saveBoard))
+	m.HandleFunc("DELETE /api/status-boards/{bid}", s.api("panel.settings", s.deleteBoard))
+	m.HandleFunc("POST /api/status-boards/{bid}/refresh", s.api("panel.settings", s.refreshBoard))
 	// Servers
 	m.HandleFunc("GET /api/games", s.api(signedIn, s.games))
 	m.HandleFunc("GET /api/servers", s.api(signedIn, s.listServers))

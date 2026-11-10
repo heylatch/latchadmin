@@ -20,6 +20,7 @@ import { useApi } from "@/hooks/use-api"
 import { api } from "@/lib/api"
 import { formatRelative, isZeroTime } from "@/lib/format"
 import { useCan } from "@/lib/session"
+import { StatusBoards } from "@/pages/status-boards"
 import { cn } from "@/lib/utils"
 
 // Sensible first choice: the events that need attention.
@@ -271,35 +272,41 @@ export default function NotificationsPage() {
   if (!can("panel.settings")) return <Navigate to="/" replace />
 
   return (
-    <div className="space-y-6">
-      <PageHeader
-        title={t("nav.notifications")}
-        description={t("notify.text")}
-        actions={
+    <div className="space-y-10">
+      <PageHeader title={t("nav.notifications")} description={t("notify.pageText")} />
+      <section className="space-y-4" aria-labelledby="alerts-title">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div className="space-y-1">
+            <h2 id="alerts-title" className="text-lg font-semibold">
+              {t("notify.sectionTitle")}
+            </h2>
+            <p className="max-w-2xl text-sm text-muted-foreground">{t("notify.text")}</p>
+          </div>
           <Button onClick={() => setDialog({})} disabled={!query.data}>
             <PlusIcon aria-hidden="true" />
             {t("notify.add")}
           </Button>
-        }
-      />
-      <Query query={query}>
-        {(d) =>
-          d.webhooks.length ? (
-            <div className="grid items-start gap-4 lg:grid-cols-2">
-              {d.webhooks.map((h) => (
-                <HookCard key={h.id} hook={h} servers={servers.data ?? []} onEdit={() => setDialog({ hook: h })} onDelete={() => setRemoving(h)} onChanged={query.reload} />
-              ))}
-            </div>
-          ) : (
-            <EmptyState icon={BellIcon} title={t("notify.emptyTitle")} description={t("notify.emptyText")}>
-              <Button onClick={() => setDialog({})}>
-                <PlusIcon aria-hidden="true" />
-                {t("notify.add")}
-              </Button>
-            </EmptyState>
-          )
-        }
-      </Query>
+        </div>
+        <Query query={query}>
+          {(d) =>
+            d.webhooks.length ? (
+              <div className="grid items-start gap-4 lg:grid-cols-2">
+                {d.webhooks.map((h) => (
+                  <HookCard key={h.id} hook={h} servers={servers.data ?? []} onEdit={() => setDialog({ hook: h })} onDelete={() => setRemoving(h)} onChanged={query.reload} />
+                ))}
+              </div>
+            ) : (
+              <EmptyState icon={BellIcon} title={t("notify.emptyTitle")} description={t("notify.emptyText")}>
+                <Button onClick={() => setDialog({})}>
+                  <PlusIcon aria-hidden="true" />
+                  {t("notify.add")}
+                </Button>
+              </EmptyState>
+            )
+          }
+        </Query>
+      </section>
+      <StatusBoards servers={servers.data ?? []} />
       <p className="text-xs text-muted-foreground">{t("notify.privacy")}</p>
       {dialog && query.data && <WebhookDialog hook={dialog.hook} groups={query.data.groups} servers={servers.data ?? []} onClose={() => setDialog(null)} onSaved={query.reload} />}
       <ConfirmDialog

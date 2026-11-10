@@ -45,6 +45,7 @@ type App struct {
 	selfMu      sync.Mutex      // one self-update prepare/apply at a time
 	installing  map[string]bool // folders an install job is writing to
 	notes       chan notify.Event
+	boardMu     sync.Mutex // one status board update at a time, so a board never gets two messages
 	// Restart is called after a self-update is swapped in. Set by main.
 	Restart func(exe string)
 }
@@ -248,6 +249,7 @@ func (a *App) Shutdown() {
 		go func(p *supervisor.Proc) { defer wg.Done(); _ = p.Stop() }(p)
 	}
 	wg.Wait()
+	a.boardsOffline()
 	_ = a.Metrics.Save()
 }
 
@@ -360,6 +362,7 @@ func (a *App) Run(ctx context.Context) {
 	go a.every(ctx, 30*time.Second, 30*time.Second, a.schedule)
 	go a.every(ctx, metrics.Interval, metrics.Interval, a.collect)
 	go a.deliverLoop(ctx)
+	go a.every(ctx, time.Minute, 20*time.Second, a.updateBoards)
 	go a.every(ctx, 5*time.Minute, 5*time.Minute, func(context.Context) { _ = a.Metrics.Save() })
 	<-ctx.Done()
 }

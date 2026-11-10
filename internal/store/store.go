@@ -105,9 +105,40 @@ type Webhook struct {
 	LastError  string    `json:"lastError,omitempty"`
 }
 
+// StatusBoard is one public Discord message the panel keeps up to date with its servers' status.
+type StatusBoard struct {
+	ID         string        `json:"id"`
+	Name       string        `json:"name"`
+	URL        string        `json:"url"` // sealed
+	Lang       string        `json:"lang"`
+	Title      string        `json:"title"`
+	Note       string        `json:"note,omitempty"`
+	Servers    []BoardServer `json:"servers"`
+	Buttons    []BoardButton `json:"buttons,omitempty"`
+	Enabled    bool          `json:"enabled"`
+	MessageID  string        `json:"messageId,omitempty"`
+	LastHash   string        `json:"lastHash,omitempty"`
+	LastSentAt time.Time     `json:"lastSentAt"`
+	LastTryAt  time.Time     `json:"lastTryAt"`
+	LastError  string        `json:"lastError,omitempty"`
+}
+
+// BoardServer is a server on a status board and the address players connect to (empty = not shown).
+type BoardServer struct {
+	ServerID string `json:"serverId"`
+	Address  string `json:"address,omitempty"`
+}
+
+// BoardButton is a link button under a status board (Discord invite, website, rules).
+type BoardButton struct {
+	Label string `json:"label"`
+	URL   string `json:"url"`
+}
+
 type State struct {
-	InstanceID string    `json:"instanceId"`
-	Webhooks   []Webhook `json:"webhooks"`
+	InstanceID   string        `json:"instanceId"`
+	Webhooks     []Webhook     `json:"webhooks"`
+	StatusBoards []StatusBoard `json:"statusBoards,omitempty"`
 	// Notified remembers one-time notices ("game.available:arcane-mp:1.12.3") so they're sent once.
 	Notified map[string]bool `json:"notified,omitempty"`
 	// PlayerRecords is each server's highest player count, for "new record" notices.
