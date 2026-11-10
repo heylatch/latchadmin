@@ -167,6 +167,12 @@ func clientIP(r *http.Request) string {
 	return r.RemoteAddr
 }
 
+// isLocal reports whether the visitor is on this machine (directly or through an SSH tunnel).
+func isLocal(ip string) bool {
+	p := net.ParseIP(ip)
+	return p != nil && p.IsLoopback()
+}
+
 // limitKey groups IPv6 addresses by /64: one host usually holds a whole /64 and could rotate through it.
 func limitKey(ip string) string {
 	p := net.ParseIP(ip)

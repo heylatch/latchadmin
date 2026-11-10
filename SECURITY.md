@@ -10,9 +10,9 @@ LatchAdmin runs on a game server machine with the rights of the account that sta
 
 ### Who can control the panel
 
-- **Setup:** until an owner exists, the setup page needs a 6-digit PIN printed only to the panel's console. Five wrong PINs replace it, and after 50 wrong PINs setup stays locked until the panel restarts.
-- **Sign-in:** argon2id password hashes (at most four computed at once); optional TOTP two-factor codes, each usable once. Attempts are counted before the password is checked: 10 per address (IPv6: per /64) and 30 per username per 15 minutes, then a wait.
-- **Behind a reverse proxy:** pass `--trusted-proxy <address>` so the panel takes the visitor's address from `X-Forwarded-For` and HTTPS from `X-Forwarded-Proto`. Without it those headers are ignored, because anyone can send them.
+- **Setup:** until an owner exists, the setup page needs a 6-digit PIN printed only to the panel's console. Five wrong PINs replace it, and after 50 wrong PINs setup is locked for everyone except the machine itself (localhost) until the panel restarts.
+- **Sign-in:** argon2id password hashes (at most four computed at once); optional TOTP two-factor codes, each usable once. Attempts are counted before the password is checked: 10 per address (IPv6: per /64) and 30 per username per 15 minutes, then a wait. The per-username limit doesn't apply on the machine itself, so nobody can lock an owner out of `http://localhost:40120` or an SSH tunnel.
+- **Behind a reverse proxy:** pass `--trusted-proxy <address>` so the panel takes the visitor's address from `X-Forwarded-For` and HTTPS from `X-Forwarded-Proto`. Without it those headers are ignored, because anyone can send them, and every visitor looks like it comes from the proxy's address (usually localhost, which skips the per-username limit). Always set it behind a proxy.
 - **Sessions:** random 256-bit tokens in an `HttpOnly`, `SameSite=Strict` cookie. Only their SHA-256 is stored. Changing a password signs out other sessions.
 - **Request forgery:** every state-changing request must carry an `X-LatchAdmin` header, which a browser only sends from the panel's own pages (the panel has no CORS), and its `Origin`, if present, must match the panel's host.
 - **Permissions:** each user has a set of permissions (16, in six groups, or "all") and access to all servers or chosen ones. A server the user can't access answers as if it didn't exist. Nobody can grant a permission or server they don't hold, or change a user who holds more than they do.

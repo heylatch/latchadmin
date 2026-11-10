@@ -229,15 +229,18 @@ func ValidEnvKey(k string) bool { return envKeyRe.MatchString(k) }
 // Variables that change how the server binary loads code or which programs it finds. A panel user who can edit
 // variables must not be able to point the server at a library they uploaded as a resource.
 var reservedEnv = map[string]bool{
-	"PATH": true, "PATHEXT": true, "SYSTEMROOT": true, "WINDIR": true, "COMSPEC": true, "PSMODULEPATH": true,
+	"PATH": true, "PATHEXT": true, "SYSTEMROOT": true, "WINDIR": true, "COMSPEC": true, "PSMODULEPATH": true, "SSLKEYLOGFILE": true,
 	"NODE_OPTIONS": true, "NODE_PATH": true, "NODE_EXTRA_CA_CERTS": true, "NODE_TLS_REJECT_UNAUTHORIZED": true,
 	"NODE_REPL_EXTERNAL_MODULE": true,
 }
-var reservedPrefixes = []string{"LD_", "DYLD_", "COR_", "COMPLUS_", "DOTNET_", "CORECLR_", "MALLOC_", "GCONV_"}
+var reservedPrefixes = []string{"LD_", "DYLD_", "COR_", "COMPLUS_", "DOTNET_", "CORECLR_", "MALLOC_", "GCONV_", "NODE_", "OPENSSL_", "SSL_"}
 
 // ReservedEnvKey reports whether a variable can't be set from the panel.
 func ReservedEnvKey(k string) bool {
 	k = strings.ToUpper(k)
+	if k == "NODE_ENV" {
+		return false // only names a mode ("production"); scripts read it
+	}
 	if reservedEnv[k] {
 		return true
 	}

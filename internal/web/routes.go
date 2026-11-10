@@ -144,8 +144,9 @@ func (s *Server) setup(w http.ResponseWriter, r *http.Request, _ ctxUser) error 
 		return fail(409, "done", "Setup is already finished. Sign in.")
 	}
 	ip := clientIP(r)
-	if s.setupFails.Load() >= maxSetupFails {
-		return fail(423, "setupLocked", "Setup is locked after too many wrong PINs. Restart LatchAdmin to get a new PIN.")
+	// The lock never applies on the machine itself, so a stranger can't keep the owner out of setup.
+	if s.setupFails.Load() >= maxSetupFails && !isLocal(ip) {
+		return fail(423, "setupLocked", "Setup is locked after too many wrong PINs. Open the panel on this machine (localhost), or restart LatchAdmin.")
 	}
 	if ok, _ := s.setups.Take(limitKey(ip)); !ok {
 		return fail(429, "rateLimited", "Too many tries. Wait a few minutes.")
@@ -199,8 +200,12 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request, _ ctxUser) error 
 	if ok, wait := s.logins.Take(ipKey); !ok {
 		return fail(429, "rateLimited", fmt.Sprintf("Too many failed sign-ins. Try again in %d minutes.", int(wait.Minutes())+1))
 	}
-	if ok, wait := s.names.Take(nameKey); !ok {
-		return fail(429, "rateLimited", fmt.Sprintf("Too many failed sign-ins for this account. Try again in %d minutes.", int(wait.Minutes())+1))
+	// Per account, but not on the machine itself: a stranger hammering a username can't lock its owner out of
+	// http://localhost:40120 (or an SSH tunnel).
+	if !isLocal(ip) {
+		if ok, wait := s.names.Take(nameKey); !ok {
+			return fail(429, "rateLimited", fmt.Sprintf("Too many failed sign-ins for this account. Try again in %d minutes, or sign in on the machine itself.", int(wait.Minutes())+1))
+		}
 	}
 	var u store.User
 	found := false
@@ -233,17 +238,25 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request, _ ctxUser) error 
 		if !ok {
 			return fail(401, "badCode", "That code is wrong, expired or already used.")
 		}
-		_ = s.App.Store.Update(func(st *store.State) error {
+		// Check and record under the store's lock: two requests with the same code can't both get in.
+		if err := s.App.Store.Update(func(st *store.State) error {
 			for i := range st.Users {
-				if st.Users[i].ID == u.ID && st.Users[i].TOTPLastStep < step {
+				if st.Users[i].ID == u.ID {
+					if st.Users[i].TOTPLastStep >= step {
+						return fail(401, "badCode", "That code is wrong, expired or already used.")
+					}
 					st.Users[i].TOTPLastStep = step
 				}
 			}
 			return nil
-		})
+		}); err != nil {
+			return err
+		}
 	}
 	s.logins.Refund(ipKey)
-	s.names.Refund(nameKey)
+	if !isLocal(ip) {
+		s.names.Refund(nameKey)
+	}
 	s.App.Store.Audit(u.Username, "login", "", map[string]string{"ip": ip})
 	if err := s.newSession(w, r, u.ID); err != nil {
 		return err
