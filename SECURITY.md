@@ -14,7 +14,7 @@ LatchAdmin runs on a game server machine with the rights of the account that sta
 - **Sign-in:** argon2id password hashes; optional TOTP two-factor codes; 10 failed sign-ins per IP per 15 minutes, then a wait.
 - **Sessions:** random 256-bit tokens in an `HttpOnly`, `SameSite=Strict` cookie. Only their SHA-256 is stored. Changing a password signs out other sessions.
 - **Request forgery:** every state-changing request must carry an `X-LatchAdmin` header, which a browser only sends from the panel's own pages (the panel has no CORS), and its `Origin`, if present, must match the panel's host.
-- **Roles:** owner (users, Latch link, adding and removing servers, panel updates, the folder browser), admin (running servers, config, updates), viewer (read only; no environment values).
+- **Permissions:** each user has a set of permissions (16, in six groups, or "all") and access to all servers or chosen ones. A server the user can't access answers as if it didn't exist. Nobody can grant a permission or server they don't hold, or change a user who holds more than they do.
 - **Headers:** a strict Content-Security-Policy (no inline scripts), `X-Frame-Options: DENY`, `nosniff`, `no-referrer`.
 
 Serve the panel over HTTPS before signing in across the internet (see the README).

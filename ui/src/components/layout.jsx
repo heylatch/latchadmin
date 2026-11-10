@@ -2,6 +2,7 @@ import { Link, NavLink, Outlet, useLocation } from "react-router"
 import { useTranslation } from "react-i18next"
 import {
   ActivityIcon,
+  ChartLineIcon,
   ChevronsUpDownIcon,
   KeyRoundIcon,
   LanguagesIcon,
@@ -72,6 +73,7 @@ function Nav({ servers }) {
         <SidebarGroupLabel>{t("nav.servers")}</SidebarGroupLabel>
         <SidebarMenu>
           {item("/", t("nav.overview"), ServerIcon, true)}
+          {item("/statistics", t("nav.statistics"), ChartLineIcon)}
           {(servers ?? []).map((s) => (
             <SidebarMenuItem key={s.id}>
               <SidebarMenuButton asChild isActive={pathname.startsWith(`/servers/${s.id}`)} tooltip={s.name}>

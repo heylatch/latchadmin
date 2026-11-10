@@ -63,6 +63,8 @@ export const api = {
   panelUpdate: (now) => post("/panel/update", { Now: now }),
   audit: () => get("/audit"),
   browse: (path) => get(`/browse?path=${id(path ?? "")}`),
+  stats: (range) => get(`/stats?range=${id(range)}`),
+  serverStats: (s, range) => get(`/servers/${id(s)}/stats?range=${id(range)}`),
 
   games: () => get("/games"),
   servers: () => get("/servers"),

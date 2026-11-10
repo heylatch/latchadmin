@@ -64,7 +64,7 @@ func fail(status int, code, msg string) error { return &apiError{status, code, m
 
 var (
 	errUnauthorized = fail(401, "unauthorized", "Sign in again.")
-	errForbidden    = fail(403, "forbidden", "Your role can't do this.")
+	errForbidden    = fail(403, "forbidden", "You don't have permission to do this.")
 	errNotFound     = fail(404, "notFound", "Not found.")
 )
 

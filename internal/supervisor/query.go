@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -109,7 +110,9 @@ var commandLine = regexp.MustCompile(`^([a-zA-Z][\w:.-]*) (.+)$`)
 // RefreshCommands reads the server's command list with "help". Help lines carry no "[hh:mm:ss]" prefix, which is
 // how they're told apart from log output arriving at the same time.
 func (p *Proc) RefreshCommands() {
-	lines, err := p.Query("help", func(l string) (bool, bool) { return !timestamped.MatchString(l), false }, 600*time.Millisecond, 4*time.Second)
+	lines, err := p.Query("help", func(l string) (bool, bool) {
+		return !timestamped.MatchString(l) || strings.HasSuffix(strings.TrimSpace(l), "Available commands:"), false
+	}, 600*time.Millisecond, 4*time.Second)
 	if err != nil {
 		return
 	}
@@ -123,6 +126,7 @@ func (p *Proc) RefreshCommands() {
 		seen[m[1]] = true
 		out = append(out, Command{Name: m[1], Description: strings.TrimSpace(m[2])})
 	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	if len(out) > 0 {
 		p.mu.Lock()
 		p.commands = out

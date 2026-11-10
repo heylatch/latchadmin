@@ -144,7 +144,7 @@ export default function SettingsTab({ server, reload }) {
     <div className="grid items-start gap-6 lg:grid-cols-2">
       <General server={server} reload={reload} />
       <div className="space-y-6">
-        <Logs server={server} />
+        {can("console.view") && <Logs server={server} />}
         {can("server.remove") && (
           <Card>
             <CardHeader>

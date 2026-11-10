@@ -18,6 +18,7 @@ import LatchPage from "@/pages/latch"
 import OverviewPage from "@/pages/overview"
 import ServerPage from "@/pages/server/server"
 import SettingsPage from "@/pages/settings"
+import StatisticsPage from "@/pages/statistics"
 import UsersPage from "@/pages/users"
 
 function App() {
@@ -36,6 +37,7 @@ function App() {
         <Route index element={<OverviewPage />} />
         <Route path="servers/new" element={<AddServerPage />} />
         <Route path="servers/:id/:tab?" element={<ServerPage />} />
+        <Route path="statistics" element={<StatisticsPage />} />
         <Route path="latch" element={<LatchPage />} />
         <Route path="activity" element={<ActivityPage />} />
         <Route path="users" element={<UsersPage />} />

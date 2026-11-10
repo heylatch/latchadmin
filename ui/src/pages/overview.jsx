@@ -81,7 +81,7 @@ function ServerCard({ server, onChange }) {
           <Stat label={t("server.uptime")} value={up ? formatDuration(s.startedAt) : "—"} />
           <Stat label="CPU" value={up && s.cpu != null ? `${Math.round(s.cpu)}%` : "—"} />
           <Stat label={t("server.memory")} value={up && s.memBytes ? formatBytes(s.memBytes) : "—"} />
-          <Stat label={t("server.port")} value={server.port} />
+          <Stat label={t("server.players")} value={up && s.players != null ? `${s.players}/${s.maxPlayers || "?"}` : "—"} />
         </dl>
         {server.update?.urgent ? (
           <Badge variant="destructive" className="gap-1">

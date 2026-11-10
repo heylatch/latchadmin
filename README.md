@@ -3,13 +3,14 @@
 A web panel for running MafiaHub game servers: Arcane MP, Kingdoms Connected and Mafia 2 Online. One file to run, then everything from your browser:
 
 - **Install a server** from the official MafiaHub releases, or **use a server folder you already have**. Nothing in it is changed.
-- **Run it:** start, stop and restart; live console with commands; crash restarts; daily scheduled restarts.
+- **Run it:** start, stop and restart; live console with command suggestions; crash restarts; daily scheduled restarts.
 - **Resources:** list, enable and disable, upload a .zip, restart one while the server runs.
 - **Configuration:** environment variables (secrets stored encrypted), `server.json` and the resources' `data/*.json`.
 - **Game updates:** one click, with a backup first and a one-click restore.
 - **Latch scripts:** link your [Latch](https://heylatch.app) account, then install and update the scripts you've bought, by hand or automatically.
 - **Self-update:** LatchAdmin updates itself from signed GitHub releases.
-- **Users:** owner, admin and viewer roles, two-factor sign-in and an activity log.
+- **Statistics:** players, CPU and memory per server and for the machine, uptime and crashes, over 1 hour to 7 days.
+- **Users:** per-user permissions in groups and per-server access, generated passwords, two-factor sign-in and an activity log.
 
 Runs on Windows and Linux (x64, and arm64 on Linux).
 

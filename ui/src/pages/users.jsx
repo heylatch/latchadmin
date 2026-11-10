@@ -340,7 +340,7 @@ export default function UsersPage() {
                   <TableHead>{t("users.permissionsTitle")}</TableHead>
                   <TableHead className="hidden md:table-cell">{t("users.serversTitle")}</TableHead>
                   <TableHead className="hidden sm:table-cell">2FA</TableHead>
-                  <TableHead className="hidden lg:table-cell">{t("users.created")}</TableHead>
+                  <TableHead className="hidden lg:table-cell">{t("users.createdCol")}</TableHead>
                   <TableHead className="w-10">
                     <span className="sr-only">{t("common.actions")}</span>
                   </TableHead>
