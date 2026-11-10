@@ -35,7 +35,7 @@ func makeZip(t *testing.T, files map[string]string, mode map[string]os.FileMode)
 }
 
 func TestCleanNameRejectsEscapes(t *testing.T) {
-	for _, n := range []string{"../x", "a/../../x", "/etc/passwd", `a\b`, "C:/x", "a//b", "./a", ""} {
+	for _, n := range []string{"../x", "a/../../x", "/etc/passwd", `a\b`, "C:/x", "a//b", "./a", "", ".../x", ".. /x", "a/b.", "NUL", "con.txt", "a/COM1.js", "x:stream", "a/b\x01"} {
 		if _, err := CleanName(n); !errors.Is(err, ErrUnsafe) {
 			t.Errorf("%q accepted", n)
 		}

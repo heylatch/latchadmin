@@ -7,9 +7,9 @@ import "runtime"
 type Game struct {
 	ID          string   `json:"id"`
 	Label       string   `json:"label"`
-	Slug        string   `json:"slug"`     // api.mafiahub.dev/mods/<slug>
-	Exe         string   `json:"exe"`      // server binary name without extension
-	OldExes     []string `json:"-"`        // names used by older releases, still recognised when importing
+	Slug        string   `json:"slug"` // api.mafiahub.dev/mods/<slug>
+	Exe         string   `json:"exe"`  // server binary name without extension
+	OldExes     []string `json:"-"`    // names used by older releases, still recognised when importing
 	DefaultPort int      `json:"defaultPort"`
 }
 

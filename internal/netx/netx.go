@@ -30,8 +30,8 @@ var allowedHosts = map[string]bool{
 
 // Download hosts that the hosts above redirect to.
 var allowedSuffixes = []string{
-	".r2.cloudflarestorage.com",  // MafiaHub release zips and Latch packages
-	".githubusercontent.com",     // GitHub release assets
+	".r2.cloudflarestorage.com", // MafiaHub release zips and Latch packages
+	".githubusercontent.com",    // GitHub release assets
 }
 
 // ErrNotAllowed is returned for any URL outside the allow-list.
@@ -112,7 +112,9 @@ type HTTPError struct {
 	Body   []byte
 }
 
-func (e *HTTPError) Error() string { return fmt.Sprintf("HTTP %d: %s", e.Status, strings.TrimSpace(string(e.Body))) }
+func (e *HTTPError) Error() string {
+	return fmt.Sprintf("HTTP %d: %s", e.Status, strings.TrimSpace(string(e.Body)))
+}
 
 // JSON sends body (if not nil) as JSON and decodes the answer into out (if not nil).
 func JSON(ctx context.Context, method, rawURL string, header http.Header, body, out any) error {

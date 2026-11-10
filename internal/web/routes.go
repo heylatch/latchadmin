@@ -198,7 +198,12 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request, _ ctxUser) error 
 		if in.Code == "" {
 			return fail(401, "codeRequired", "Enter the code from your authenticator app.")
 		}
-		if !auth.CheckTOTP(secret.MustOpen(u.TOTPSecret), in.Code) {
+		sec, err := secret.Open(u.TOTPSecret)
+		if err != nil || sec == "" {
+			// Never fall back to "no 2FA" when the secret can't be read (e.g. data copied to another account).
+			return fail(401, "totpUnreadable", "Two-factor settings can't be read on this machine. Ask an owner to reset your 2FA.")
+		}
+		if !auth.CheckTOTP(sec, in.Code) {
 			s.logins.Fail(ip)
 			return fail(401, "badCode", "That code is wrong or expired.")
 		}
@@ -335,7 +340,9 @@ func (s *Server) listUsers(w http.ResponseWriter, r *http.Request, _ ctxUser) er
 	return nil
 }
 
-func validRole(r store.Role) bool { return r == store.RoleOwner || r == store.RoleAdmin || r == store.RoleViewer }
+func validRole(r store.Role) bool {
+	return r == store.RoleOwner || r == store.RoleAdmin || r == store.RoleViewer
+}
 
 func (s *Server) createUser(w http.ResponseWriter, r *http.Request, me ctxUser) error {
 	var in struct {
@@ -389,8 +396,8 @@ func (s *Server) ownerCount() int {
 
 func (s *Server) updateUser(w http.ResponseWriter, r *http.Request, me ctxUser) error {
 	var in struct {
-		Role     store.Role
-		Password string
+		Role      store.Role
+		Password  string
 		ResetTOTP bool
 	}
 	if err := decode(r, &in); err != nil {
@@ -574,11 +581,11 @@ func (s *Server) games(w http.ResponseWriter, r *http.Request, _ ctxUser) error 
 
 type serverView struct {
 	store.Server
-	Env      []envView          `json:"env"`
-	Status   supervisor.Status  `json:"status"`
-	Update   app.ProductInfo    `json:"update"`
-	Job      *app.Job           `json:"job,omitempty"`
-	GameName string             `json:"gameName"`
+	Env      []envView         `json:"env"`
+	Status   supervisor.Status `json:"status"`
+	Update   app.ProductInfo   `json:"update"`
+	Job      *app.Job          `json:"job,omitempty"`
+	GameName string            `json:"gameName"`
 }
 
 type envView struct {
@@ -588,7 +595,8 @@ type envView struct {
 	Set    bool   `json:"set"`
 }
 
-func (s *Server) view(sv store.Server) serverView {
+// view builds the server JSON. Env values are included only for admins and owners.
+func (s *Server) view(sv store.Server, role store.Role) serverView {
 	v := serverView{Server: sv, Status: s.App.Proc(sv.ID).Status(), Update: s.App.Product(sv.Game, sv.Version)}
 	if g, ok := games.ByID(sv.Game); ok {
 		v.GameName = g.Label
@@ -600,6 +608,9 @@ func (s *Server) view(sv store.Server) serverView {
 	}
 	v.Env = make([]envView, 0, len(sv.Env))
 	for _, e := range sv.Env {
+		if rank[role] < rank[store.RoleAdmin] {
+			break
+		}
 		ev := envView{Key: e.Key, Secret: e.Secret, Set: e.Value != ""}
 		if !e.Secret {
 			ev.Value = e.Value
@@ -614,12 +625,12 @@ func (s *Server) view(sv store.Server) serverView {
 	return v
 }
 
-func (s *Server) listServers(w http.ResponseWriter, r *http.Request, _ ctxUser) error {
+func (s *Server) listServers(w http.ResponseWriter, r *http.Request, u ctxUser) error {
 	var list []store.Server
 	s.App.Store.Read(func(st *store.State) { list = append(list, st.Servers...) })
 	out := make([]serverView, 0, len(list))
 	for _, sv := range list {
-		out = append(out, s.view(sv))
+		out = append(out, s.view(sv, u.Role))
 	}
 	writeJSON(w, 200, out)
 	return nil
@@ -633,12 +644,12 @@ func (s *Server) server(r *http.Request) (store.Server, error) {
 	return sv, nil
 }
 
-func (s *Server) getServer(w http.ResponseWriter, r *http.Request, _ ctxUser) error {
+func (s *Server) getServer(w http.ResponseWriter, r *http.Request, u ctxUser) error {
 	sv, err := s.server(r)
 	if err != nil {
 		return err
 	}
-	writeJSON(w, 200, s.view(sv))
+	writeJSON(w, 200, s.view(sv, u.Role))
 	return nil
 }
 
@@ -677,7 +688,7 @@ func (s *Server) importServer(w http.ResponseWriter, r *http.Request, u ctxUser)
 	if err != nil {
 		return badRequest(err)
 	}
-	writeJSON(w, 201, s.view(sv))
+	writeJSON(w, 201, s.view(sv, u.Role))
 	return nil
 }
 
@@ -799,7 +810,7 @@ func (s *Server) serverAction(w http.ResponseWriter, r *http.Request, u ctxUser)
 		return badRequest(err)
 	}
 	s.App.Store.Audit(u.Username, "server."+action, sv.Name, nil)
-	writeJSON(w, 200, s.view(sv))
+	writeJSON(w, 200, s.view(sv, u.Role))
 	return nil
 }
 
@@ -1054,7 +1065,9 @@ func (s *Server) putConfig(w http.ResponseWriter, r *http.Request, u ctxUser) er
 	if err := app.WriteConfig(sv.Dir, raw); err != nil {
 		return badRequest(err)
 	}
-	var c struct{ Port int `json:"port"` }
+	var c struct {
+		Port int `json:"port"`
+	}
 	if json.Unmarshal(raw, &c) == nil && c.Port > 0 && c.Port != sv.Port {
 		_ = s.App.Store.UpdateServer(sv.ID, func(x *store.Server) error { x.Port = c.Port; return nil })
 	}
@@ -1068,7 +1081,7 @@ func (s *Server) getEnv(w http.ResponseWriter, r *http.Request, u ctxUser) error
 	if err != nil {
 		return err
 	}
-	writeJSON(w, 200, s.view(sv).Env)
+	writeJSON(w, 200, s.view(sv, u.Role).Env)
 	return nil
 }
 

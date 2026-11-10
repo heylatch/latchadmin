@@ -87,11 +87,11 @@ type Proc struct {
 	backoff  time.Duration
 	cpuPrev  cpuSample
 
-	lmu   sync.Mutex
-	lines []Line
-	next  int64
-	subs  map[chan Line]struct{}
-	logF  *os.File
+	lmu    sync.Mutex
+	lines  []Line
+	next   int64
+	subs   map[chan Line]struct{}
+	logF   *os.File
 	logDay string
 }
 

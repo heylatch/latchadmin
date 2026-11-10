@@ -18,13 +18,13 @@ import (
 // ---------- Linking ----------
 
 type pendingLink struct {
-	mu        sync.Mutex
-	UserCode  string    `json:"userCode"`
-	VerifyURL string    `json:"verifyUrl"`
-	VerifyURLComplete string `json:"verifyUrlComplete"`
-	ExpiresAt time.Time `json:"expiresAt"`
-	Status    string    `json:"status"` // pending, approved, denied, expired, error
-	Error     string    `json:"error,omitempty"`
+	mu                sync.Mutex
+	UserCode          string    `json:"userCode"`
+	VerifyURL         string    `json:"verifyUrl"`
+	VerifyURLComplete string    `json:"verifyUrlComplete"`
+	ExpiresAt         time.Time `json:"expiresAt"`
+	Status            string    `json:"status"` // pending, approved, denied, expired, error
+	Error             string    `json:"error,omitempty"`
 }
 
 // LinkSnapshot is the state of an ongoing link for the UI.
@@ -227,7 +227,7 @@ func (a *App) report(ctx context.Context) {
 
 // ScriptRow is one Library script with its state on each server.
 type ScriptRow struct {
-	Item    latch.LibraryItem       `json:"item"`
+	Item    latch.LibraryItem         `json:"item"`
 	Servers map[string]ScriptOnServer `json:"servers"`
 }
 

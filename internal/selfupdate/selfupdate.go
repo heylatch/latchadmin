@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -89,8 +90,12 @@ func fetch(ctx context.Context, url string, limit int64) ([]byte, error) {
 	return io.ReadAll(io.LimitReader(res.Body, limit))
 }
 
-// VerifySums checks the signature over SHA256SUMS and returns the hash listed for asset.
-func VerifySums(sums, sig []byte, asset string) ([]byte, error) {
+var versionRe = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
+
+// VerifySums checks the signature over SHA256SUMS, that the signed file names this version (its first line is
+// "# latchadmin <version>", so an older signed release can't be passed off as a newer one) and returns the hash
+// listed for asset.
+func VerifySums(sums, sig []byte, version, asset string) ([]byte, error) {
 	pub, err := base64.StdEncoding.DecodeString(PublicKey)
 	if err != nil || len(pub) != ed25519.PublicKeySize {
 		return nil, errors.New("bad built-in public key")
@@ -101,6 +106,10 @@ func VerifySums(sums, sig []byte, asset string) ([]byte, error) {
 	}
 	if !ed25519.Verify(pub, sums, rawSig) {
 		return nil, errors.New("release signature is invalid; the update was refused")
+	}
+	first, _, _ := bytes.Cut(sums, []byte("\n"))
+	if strings.TrimSpace(string(first)) != "# latchadmin "+version {
+		return nil, errors.New("signed release is for another version; the update was refused")
 	}
 	sc := bufio.NewScanner(bytes.NewReader(sums))
 	for sc.Scan() {
@@ -115,6 +124,9 @@ func VerifySums(sums, sig []byte, asset string) ([]byte, error) {
 // Download fetches and verifies version for this platform. It returns the path of the new binary, next to the
 // running one.
 func Download(ctx context.Context, version string) (string, error) {
+	if !versionRe.MatchString(version) {
+		return "", errors.New("bad version")
+	}
 	if Compare(version, buildinfo.Version) <= 0 {
 		return "", errors.New("that version isn't newer than this one")
 	}
@@ -127,7 +139,7 @@ func Download(ctx context.Context, version string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	want, err := VerifySums(sums, sig, AssetName())
+	want, err := VerifySums(sums, sig, version, AssetName())
 	if err != nil {
 		return "", err
 	}

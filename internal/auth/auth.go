@@ -132,7 +132,7 @@ func totpAt(secret string, step int64) (string, error) {
 // CheckTOTP accepts the code for now and one step either side.
 func CheckTOTP(secret, code string) bool {
 	code = strings.ReplaceAll(strings.TrimSpace(code), " ", "")
-	if len(code) != 6 {
+	if len(code) != 6 || len(strings.TrimSpace(secret)) < 16 {
 		return false
 	}
 	step := time.Now().Unix() / 30

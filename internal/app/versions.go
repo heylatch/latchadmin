@@ -17,8 +17,8 @@ func compare(a, b string) int { return selfupdate.Compare(a, b) }
 
 // ProductInfo is what the panel knows about the newest version of the panel or a game.
 type ProductInfo struct {
-	Latest string          `json:"latest"`
-	Urgent *latch.Release  `json:"urgent,omitempty"` // newest urgent release newer than what we run, if any
+	Latest   string          `json:"latest"`
+	Urgent   *latch.Release  `json:"urgent,omitempty"` // newest urgent release newer than what we run, if any
 	Releases []latch.Release `json:"releases,omitempty"`
 }
 
@@ -114,11 +114,11 @@ func (a *App) VersionsMeta() (string, time.Time, string) {
 
 // PanelUpdate describes the panel's own update state.
 type PanelUpdate struct {
-	Current string       `json:"current"`
-	Info    ProductInfo  `json:"info"`
-	Pending string       `json:"pending,omitempty"` // downloaded and verified, waiting for a quiet moment
-	Policy  string       `json:"policy"`
-	Dev     bool         `json:"dev"`
+	Current string      `json:"current"`
+	Info    ProductInfo `json:"info"`
+	Pending string      `json:"pending,omitempty"` // downloaded and verified, waiting for a quiet moment
+	Policy  string      `json:"policy"`
+	Dev     bool        `json:"dev"`
 }
 
 func (a *App) PanelUpdate() PanelUpdate {

@@ -15,12 +15,12 @@ func TestAllowed(t *testing.T) {
 	}
 	bad := []string{
 		"http://api.heylatch.app/public/v1/me",           // not HTTPS
-		"https://api.heylatch.app.evil.com/",              // suffix trick
-		"https://evilr2.cloudflarestorage.com.evil.com/",  // suffix trick
-		"https://r2.cloudflarestorage.com/",               // bare suffix
-		"https://user@api.heylatch.app/",                  // userinfo
-		"https://api.heylatch.app:8443/",                  // other port
-		"https://heylatch.app/",                           // not an API host
+		"https://api.heylatch.app.evil.com/",             // suffix trick
+		"https://evilr2.cloudflarestorage.com.evil.com/", // suffix trick
+		"https://r2.cloudflarestorage.com/",              // bare suffix
+		"https://user@api.heylatch.app/",                 // userinfo
+		"https://api.heylatch.app:8443/",                 // other port
+		"https://heylatch.app/",                          // not an API host
 		"https://127.0.0.1/",
 		"file:///etc/passwd",
 	}

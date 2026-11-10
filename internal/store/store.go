@@ -52,14 +52,14 @@ const (
 )
 
 type Server struct {
-	ID       string    `json:"id"`
-	Name     string    `json:"name"`
-	Game     string    `json:"game"`
-	Dir      string    `json:"dir"`
-	Port     int       `json:"port"`
-	Version  string    `json:"version"` // installed game runtime
-	Env      []EnvVar  `json:"env"`
-	Created  time.Time `json:"createdAt"`
+	ID      string    `json:"id"`
+	Name    string    `json:"name"`
+	Game    string    `json:"game"`
+	Dir     string    `json:"dir"`
+	Port    int       `json:"port"`
+	Version string    `json:"version"` // installed game runtime
+	Env     []EnvVar  `json:"env"`
+	Created time.Time `json:"createdAt"`
 
 	AutoStart   bool     `json:"autoStart"`   // start with the panel
 	AutoRestart bool     `json:"autoRestart"` // restart after a crash
@@ -73,13 +73,13 @@ type Server struct {
 }
 
 type Latch struct {
-	Key         string          `json:"key"` // sealed lta_ key; empty when not linked
-	AccountID   string          `json:"accountId"`
-	DisplayName string          `json:"displayName"`
-	LinkedAt    time.Time       `json:"linkedAt"`
-	Disconnected bool           `json:"disconnected"` // the key stopped working (revoked on heylatch.app)
-	LastReportAt time.Time      `json:"lastReportAt"`
-	LastReport  json.RawMessage `json:"lastReport,omitempty"` // exactly what was sent, shown on the Latch page
+	Key          string          `json:"key"` // sealed lta_ key; empty when not linked
+	AccountID    string          `json:"accountId"`
+	DisplayName  string          `json:"displayName"`
+	LinkedAt     time.Time       `json:"linkedAt"`
+	Disconnected bool            `json:"disconnected"` // the key stopped working (revoked on heylatch.app)
+	LastReportAt time.Time       `json:"lastReportAt"`
+	LastReport   json.RawMessage `json:"lastReport,omitempty"` // exactly what was sent, shown on the Latch page
 }
 
 type Settings struct {

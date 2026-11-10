@@ -110,7 +110,7 @@ type ImportPreview struct {
 	Game      string   `json:"game"`
 	Exe       string   `json:"exe"`
 	Port      int      `json:"port"`
-	EnvKeys   []string `json:"envKeys"`   // from server.env / .env / latch.env (values never sent to the browser)
+	EnvKeys   []string `json:"envKeys"` // from server.env / .env / latch.env (values never sent to the browser)
 	EnvFrom   string   `json:"envFrom,omitempty"`
 	Resources int      `json:"resources"`
 	Latch     int      `json:"latch"` // Latch-protected resources
@@ -291,7 +291,9 @@ func Browse(path string) (DirListing, error) {
 			break
 		}
 	}
-	sort.Slice(out.Entries, func(i, j int) bool { return strings.ToLower(out.Entries[i].Name) < strings.ToLower(out.Entries[j].Name) })
+	sort.Slice(out.Entries, func(i, j int) bool {
+		return strings.ToLower(out.Entries[i].Name) < strings.ToLower(out.Entries[j].Name)
+	})
 	return out, nil
 }
 

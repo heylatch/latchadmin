@@ -24,11 +24,37 @@ func CleanName(name string) (string, error) {
 		return "", fmt.Errorf("%w: %q", ErrUnsafe, name)
 	}
 	for _, part := range strings.Split(strings.TrimSuffix(name, "/"), "/") {
-		if part == ".." || part == "." || part == "" {
+		if !portablePart(part) {
 			return "", fmt.Errorf("%w: %q", ErrUnsafe, name)
 		}
 	}
 	return name, nil
+}
+
+// portablePart rejects path parts that Windows treats specially: "..", trailing dots or spaces (stripped by
+// Windows, so "..." or ".. " can mean ".."), ':' (drive or alternate stream), control characters and device names.
+func portablePart(part string) bool {
+	if part == "" || part == "." || part == ".." || strings.HasSuffix(part, ".") || strings.HasSuffix(part, " ") {
+		return false
+	}
+	for _, c := range part {
+		if c < 32 || strings.ContainsRune(`:<>"|?*`, c) {
+			return false
+		}
+	}
+	base := strings.ToUpper(part)
+	if i := strings.IndexByte(base, '.'); i >= 0 {
+		base = base[:i]
+	}
+	base = strings.TrimRight(base, " ")
+	switch base {
+	case "CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$":
+		return false
+	}
+	if len(base) == 4 && (strings.HasPrefix(base, "COM") || strings.HasPrefix(base, "LPT")) && base[3] >= '0' && base[3] <= '9' {
+		return false
+	}
+	return true
 }
 
 // CommonRoot returns "dir/" when every file in the archive is inside one top folder, else "".

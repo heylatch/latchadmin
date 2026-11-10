@@ -8,13 +8,13 @@ import (
 )
 
 func TestVerifySumsRejectsWrongKeyAndTampering(t *testing.T) {
-	sums := []byte("aa11  latchadmin-windows-amd64.exe\nbb22  latchadmin-linux-amd64\n")
+	sums := []byte("# latchadmin 1.0.0\naa11  latchadmin-windows-amd64.exe\nbb22  latchadmin-linux-amd64\n")
 	_, other, _ := ed25519.GenerateKey(rand.Reader)
 	sig := base64.StdEncoding.EncodeToString(ed25519.Sign(other, sums))
-	if _, err := VerifySums(sums, []byte(sig), "latchadmin-linux-amd64"); err == nil {
+	if _, err := VerifySums(sums, []byte(sig), "1.0.0", "latchadmin-linux-amd64"); err == nil {
 		t.Fatal("signature from another key was accepted")
 	}
-	if _, err := VerifySums(sums, []byte("not base64!"), "latchadmin-linux-amd64"); err == nil {
+	if _, err := VerifySums(sums, []byte("not base64!"), "1.0.0", "latchadmin-linux-amd64"); err == nil {
 		t.Fatal("garbage signature was accepted")
 	}
 }

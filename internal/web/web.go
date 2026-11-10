@@ -23,12 +23,12 @@ const cookieName = "latchadmin_session"
 const sessionTTL = 7 * 24 * time.Hour
 
 type Server struct {
-	App     *app.App
-	UI      fs.FS // built web UI; nil serves a placeholder
-	mux     *http.ServeMux
-	logins  *auth.Limiter
-	setups  *auth.Limiter
-	OnPIN   func(pin string) // prints a rotated setup PIN to the console
+	App    *app.App
+	UI     fs.FS // built web UI; nil serves a placeholder
+	mux    *http.ServeMux
+	logins *auth.Limiter
+	setups *auth.Limiter
+	OnPIN  func(pin string) // prints a rotated setup PIN to the console
 }
 
 func New(a *app.App, ui fs.FS) *Server {
