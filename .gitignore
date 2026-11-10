@@ -1,0 +1,9 @@
+/latchadmin-data/
+/dist/
+/bin/
+*.exe
+*.exe.old
+*.exe.new
+ui/node_modules/
+ui/dist/*
+!ui/dist/.keep
