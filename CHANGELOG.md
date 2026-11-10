@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.2
+
+**Added**
+- A new start screen in the console: the Latch wordmark, the panel's addresses and, on first start, a setup box. On Windows the browser opens the setup page with the PIN already filled in; elsewhere, open the link in the box. Colors are used only in a real terminal (`NO_COLOR` turns them off).
+- The folder picker's address bar takes a pasted path (quotes from Windows' "Copy as path" are removed).
+
+**Fixed**
+- The last point of a chart was cut off at the right edge.
+
 ## 0.1.1
 
 A security update. Please update: Settings > Panel update, or let a panel on the default "urgent updates" setting install it once the release is marked urgent.
