@@ -10,6 +10,7 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -620,6 +621,7 @@ func (s *Server) panelSettings(w http.ResponseWriter, r *http.Request, u ctxUser
 		PanelName  *string
 		SelfUpdate *string
 		CheckLatch *bool
+		PublicURL  *string
 	}
 	if err := decode(r, &in); err != nil {
 		return err
@@ -642,6 +644,16 @@ func (s *Server) panelSettings(w http.ResponseWriter, r *http.Request, u ctxUser
 		}
 		if in.CheckLatch != nil {
 			st.Settings.CheckLatch = *in.CheckLatch
+		}
+		if in.PublicURL != nil {
+			u := strings.TrimRight(strings.TrimSpace(*in.PublicURL), "/")
+			if u != "" {
+				p, err := url.Parse(u)
+				if err != nil || (p.Scheme != "https" && p.Scheme != "http") || p.Host == "" || p.User != nil || p.RawQuery != "" || p.Fragment != "" {
+					return fail(400, "badUrl", "Enter the address you open the panel at, like https://panel.example.com.")
+				}
+			}
+			st.Settings.PublicURL = u
 		}
 		return nil
 	}); err != nil {
@@ -1659,11 +1671,10 @@ func (s *Server) saveWebhook(w http.ResponseWriter, r *http.Request, u ctxUser) 
 	if len(events) == 0 {
 		return fail(400, "noEvents", "Choose at least one event.")
 	}
-	servers := []string{}
-	for _, sid := range in.Servers {
-		if _, ok := s.App.Store.Server(sid); ok && !slices.Contains(servers, sid) {
-			servers = append(servers, sid)
-		}
+	// Same rule as granting server access: "all servers" needs all-server access, and only servers you can see.
+	servers, err := s.grantableServers(u, len(in.Servers) == 0, in.Servers)
+	if err != nil {
+		return err
 	}
 	var sealed string
 	if in.URL != "" || id == "" {
@@ -1676,7 +1687,7 @@ func (s *Server) saveWebhook(w http.ResponseWriter, r *http.Request, u ctxUser) 
 		}
 	}
 	var saved store.Webhook
-	err := s.App.Store.Update(func(st *store.State) error {
+	err = s.App.Store.Update(func(st *store.State) error {
 		if id == "" {
 			if len(st.Webhooks) >= 20 {
 				return fail(400, "tooMany", "At most 20 webhooks.")
@@ -1742,7 +1753,12 @@ func (s *Server) testWebhook(w http.ResponseWriter, r *http.Request, u ctxUser) 
 	if !found {
 		return errNotFound
 	}
-	if err := s.App.SendWebhook(r.Context(), hook, notify.Event{Kind: "test", At: time.Now()}, panel); err != nil {
+	scope := "@allServers"
+	if len(hook.Servers) > 0 {
+		scope = fmt.Sprint(len(hook.Servers))
+	}
+	test := notify.Event{Kind: "test", At: time.Now(), Fields: []notify.Field{{Label: "f.events", Value: fmt.Sprint(len(hook.Events))}, {Label: "f.servers", Value: scope}}}
+	if err := s.App.SendWebhook(r.Context(), hook, test, panel); err != nil {
 		return badRequest(err)
 	}
 	writeJSON(w, 200, map[string]bool{"ok": true})

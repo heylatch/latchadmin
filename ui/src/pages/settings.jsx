@@ -104,6 +104,7 @@ function PanelUpdate({ panel, reload }) {
 function PanelSettings({ panel, reload }) {
   const { t } = useTranslation()
   const [name, setName] = useState(panel.settings.panelName)
+  const [publicUrl, setPublicUrl] = useState(panel.settings.publicUrl ?? "")
   const [pending, setPending] = useState(false)
   async function save(patch) {
     setPending(true)
@@ -133,6 +134,16 @@ function PanelSettings({ panel, reload }) {
               </Button>
             </div>
             <FieldDescription>{t("panelSettings.nameHelp")}</FieldDescription>
+          </Field>
+          <Field>
+            <FieldLabel htmlFor="public-url">{t("panelSettings.publicUrl")}</FieldLabel>
+            <div className="flex gap-2">
+              <Input id="public-url" value={publicUrl} onChange={(e) => setPublicUrl(e.target.value)} placeholder="https://panel.example.com" className="font-mono" spellCheck={false} />
+              <Button variant="outline" disabled={pending || publicUrl === (panel.settings.publicUrl ?? "")} onClick={() => save({ PublicURL: publicUrl })}>
+                {t("common.save")}
+              </Button>
+            </div>
+            <FieldDescription>{t("panelSettings.publicUrlHelp")}</FieldDescription>
           </Field>
           <Field>
             <FieldLabel>{t("panelSettings.selfUpdate")}</FieldLabel>

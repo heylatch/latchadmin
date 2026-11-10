@@ -1,7 +1,8 @@
-// Package notify sends panel events to Discord webhooks.
+// Package notify sends panel events to Discord webhooks, as Components V2 messages (the same layout Latch uses).
 //
 // Only Discord webhook URLs are accepted (discord.com / discordapp.com /api/webhooks/...), so this can't be used to
-// send data anywhere else. Messages carry the event and the server's name, never config, keys or console output.
+// send data anywhere else. Messages carry the event, the server's name and figures like versions or player counts,
+// never config, keys or console output.
 package notify
 
 import (
@@ -45,7 +46,7 @@ var webhookRe = regexp.MustCompile(`^https://(?:(?:canary|ptb)\.)?(?:discord\.co
 // ValidURL accepts Discord webhook URLs only.
 func ValidURL(u string) bool { return webhookRe.MatchString(strings.TrimSpace(u)) }
 
-// MaskURL shows enough of a webhook URL to recognise it.
+// MaskURL shows enough of a webhook URL to recognise it; the last part is a secret.
 func MaskURL(u string) string {
 	p, err := url.Parse(u)
 	if err != nil {
@@ -59,72 +60,91 @@ func MaskURL(u string) string {
 	if len(tok) > 4 {
 		tok = tok[len(tok)-4:]
 	}
-	return fmt.Sprintf("%s/api/webhooks/%s/…%s", p.Host, parts[2], tok)
+	return fmt.Sprintf("%s/api/webhooks/%s/••••••%s", p.Host, parts[2], tok)
+}
+
+// Field is one detail line: Label is a phrase key ("f.exit"), Value the text (or "@phrase" / "@phrase|name=value").
+type Field struct {
+	Label string
+	Value string
 }
 
 // Event is something to tell the owner about.
 type Event struct {
-	Kind     string // one of the events above
+	Kind     string // one of the events above, or "test"
 	ServerID string // "" for panel-wide events
 	Server   string // server name
 	Vars     map[string]string
+	Fields   []Field
+	Link     string // path in the panel ("/servers/<id>") for the "Open in panel" button
 	At       time.Time
 }
 
-// Level picks the embed color; Discord shows it as the bar on the left of the message.
-func level(kind string) int {
-	switch kind {
-	case "server.crash", "game.failed", "latch.lost":
-		return 0xe34948 // red
-	case "server.ready", "game.updated", "script.updated":
-		return 0x1baf7a // green
-	case "game.available", "panel.available":
-		return 0xeda100 // amber
-	case "players.record":
-		return 0x6250d6 // violet
-	default:
-		return 0x2a78d6 // blue
+const isComponentsV2 = 1 << 15
+const avatarURL = "https://cdn.heylatch.app/brand/mark-bg-512.png"
+
+// esc keeps names and other free text from changing the message: no line breaks, no markdown, no links.
+var controlChars = regexp.MustCompile("[\u0000-\u001f\u007f  ]+")
+var mdChars = regexp.MustCompile(`([\\*_~` + "`" + `|>#\[\]()<:.])`)
+
+func esc(s string, max int) string {
+	s = controlChars.ReplaceAllString(s, " ")
+	if len([]rune(s)) > max {
+		s = string([]rune(s)[:max])
 	}
+	return mdChars.ReplaceAllString(s, `\$1`)
 }
 
-type embed struct {
-	Title       string  `json:"title"`
-	Description string  `json:"description,omitempty"`
-	Color       int     `json:"color"`
-	Fields      []field `json:"fields,omitempty"`
-	Timestamp   string  `json:"timestamp"`
-	Footer      footer  `json:"footer"`
-}
-
-type field struct {
-	Name   string `json:"name"`
-	Value  string `json:"value"`
-	Inline bool   `json:"inline"`
-}
-
-type footer struct {
-	Text string `json:"text"`
-}
-
-// Message renders an event in a language ("en" or "tr").
-func Message(e Event, lang, panel string) map[string]any {
-	tr := texts["en"]
+func phrases(lang string) map[string]string {
 	if t, ok := texts[lang]; ok {
-		tr = t
+		return t
 	}
-	title, desc := tr[e.Kind+".title"], tr[e.Kind+".text"]
-	for k, v := range e.Vars {
-		v = resolve(lang, v)
-		title = strings.ReplaceAll(title, "{"+k+"}", v)
-		desc = strings.ReplaceAll(desc, "{"+k+"}", v)
+	return texts["en"]
+}
+
+// Message builds the Components V2 payload for an event in a language ("en" or "tr"). panelURL, when set, is the
+// panel's public address for the "Open in panel" button.
+func Message(e Event, lang, panel, panelURL string) map[string]any {
+	tr := phrases(lang)
+	fill := func(s string, bold bool) string {
+		name := esc(e.Server, 60)
+		if bold {
+			name = "**" + name + "**"
+		}
+		s = strings.ReplaceAll(s, "{server}", name)
+		for k, v := range e.Vars {
+			s = strings.ReplaceAll(s, "{"+k+"}", esc(resolve(lang, v), 200))
+		}
+		return s
 	}
-	title = strings.ReplaceAll(title, "{server}", e.Server)
-	desc = strings.ReplaceAll(desc, "{server}", e.Server)
-	em := embed{Title: title, Description: desc, Color: level(e.Kind), Timestamp: e.At.UTC().Format(time.RFC3339), Footer: footer{Text: "LatchAdmin · " + panel}}
-	if e.Kind == "test" {
-		em = embed{Title: tr["test.title"], Description: tr["test.text"], Color: level(e.Kind), Timestamp: e.At.UTC().Format(time.RFC3339), Footer: footer{Text: "LatchAdmin · " + panel}}
+	title := fill(tr[e.Kind+".title"], false)
+	text := fill(tr[e.Kind+".text"], true)
+
+	blocks := []map[string]any{{"type": 10, "content": "### " + title + "\n" + text}}
+	var lines []string
+	for _, f := range e.Fields {
+		if v := resolve(lang, f.Value); v != "" {
+			lines = append(lines, fmt.Sprintf("**%s:** %s", tr[f.Label], esc(v, 300)))
+		}
 	}
-	return map[string]any{"username": "LatchAdmin", "embeds": []embed{em}, "allowed_mentions": map[string]any{"parse": []string{}}}
+	if len(lines) > 0 {
+		blocks = append(blocks, map[string]any{"type": 10, "content": strings.Join(lines, "\n")})
+	}
+	blocks = append(blocks,
+		map[string]any{"type": 14},
+		map[string]any{"type": 10, "content": fmt.Sprintf("-# LatchAdmin · %s · <t:%d:f>", esc(panel, 60), e.At.Unix())},
+	)
+	if panelURL != "" {
+		link := strings.TrimRight(panelURL, "/") + e.Link
+		blocks = append(blocks, map[string]any{"type": 1, "components": []map[string]any{{"type": 2, "style": 5, "label": tr["openPanel"], "url": link}}})
+	}
+	return map[string]any{
+		"username":         "LatchAdmin",
+		"avatar_url":       avatarURL,
+		"flags":            isComponentsV2,
+		"allowed_mentions": map[string]any{"parse": []string{}},
+		"components":       []map[string]any{{"type": 17, "components": blocks}},
+	}
 }
 
 // Send posts one message. Discord's rate limit (429) is honoured once.
@@ -132,8 +152,15 @@ func Send(ctx context.Context, webhook string, msg map[string]any) error {
 	if !ValidURL(webhook) {
 		return errors.New("not a Discord webhook URL")
 	}
+	// Plain channel webhooks may send non-interactive components (link buttons included) with this flag.
+	target := strings.TrimSpace(webhook) + "?with_components=true"
 	for attempt := 0; attempt < 2; attempt++ {
-		err := netx.JSON(ctx, http.MethodPost, webhook, nil, msg, nil)
+		err := netx.JSON(ctx, http.MethodPost, target, nil, msg, nil)
+		// Transport errors quote the request URL, and a webhook URL is a secret: keep only the cause.
+		var ue *url.Error
+		if errors.As(err, &ue) {
+			return errors.New("couldn't reach Discord: " + Redact(ue.Err.Error()))
+		}
 		var he *netx.HTTPError
 		if errors.As(err, &he) && he.Status == http.StatusTooManyRequests && attempt == 0 {
 			time.Sleep(2 * time.Second)
@@ -144,85 +171,26 @@ func Send(ctx context.Context, webhook string, msg map[string]any) error {
 			case http.StatusNotFound, http.StatusUnauthorized:
 				return errors.New("Discord says this webhook doesn't exist anymore")
 			}
-			return fmt.Errorf("Discord answered HTTP %d", he.Status)
+			return fmt.Errorf("Discord answered HTTP %d: %s", he.Status, Redact(string(he.Body)))
 		}
 		return err
 	}
 	return errors.New("Discord rate limit")
 }
 
-var texts = map[string]map[string]string{
-	"en": {
-		"server.crash.title":    "{server} crashed",
-		"server.crash.text":     "The server stopped unexpectedly ({exit}). {restart}",
-		"server.ready.title":    "{server} is online",
-		"server.ready.text":     "The server started and accepts players.",
-		"server.stop.title":     "{server} stopped",
-		"server.stop.text":      "The server was stopped.",
-		"server.restart.title":  "{server}: scheduled restart",
-		"server.restart.text":   "The daily {time} restart is starting.",
-		"game.available.title":  "{game} {version} is out",
-		"game.available.text":   "{server} runs {current}. {urgent}Update it from the server's Updates tab.",
-		"game.updated.title":    "{server} updated to {version}",
-		"game.updated.text":     "A backup of the previous version was made first.",
-		"game.failed.title":     "{server}: update failed",
-		"game.failed.text":      "{error}",
-		"panel.available.title": "LatchAdmin {version} is out",
-		"panel.available.text":  "This panel runs {current}. {urgent}",
-		"script.updated.title":  "{server}: {script} updated to {version}",
-		"script.updated.text":   "Installed from Latch automatically. {applies}",
-		"players.record.title":  "{server}: new player record",
-		"players.record.text":   "{players} players online at the same time.",
-		"latch.lost.title":      "Latch link stopped working",
-		"latch.lost.text":       "The account key was revoked on heylatch.app. Scripts keep running, but won't update until the panel is linked again.",
-		"test.title":            "LatchAdmin test message",
-		"test.text":             "This webhook is set up. Panel events you chose will appear here.",
-		"urgent":                "The Latch team marked it urgent. ",
-		"restartIn":             "LatchAdmin restarts it in {in}.",
-		"noRestart":             "Crash restarts are off.",
-		"appliesNow":            "The resource was reloaded.",
-		"appliesRestart":        "It runs from the next server restart.",
-	},
-	"tr": {
-		"server.crash.title":    "{server} çöktü",
-		"server.crash.text":     "Sunucu beklenmedik şekilde durdu ({exit}). {restart}",
-		"server.ready.title":    "{server} açık",
-		"server.ready.text":     "Sunucu başladı ve oyuncu kabul ediyor.",
-		"server.stop.title":     "{server} durdu",
-		"server.stop.text":      "Sunucu durduruldu.",
-		"server.restart.title":  "{server}: planlı yeniden başlatma",
-		"server.restart.text":   "Her gün saat {time} yapılan yeniden başlatma başlıyor.",
-		"game.available.title":  "{game} {version} çıktı",
-		"game.available.text":   "{server} şu an {current} sürümünde. {urgent}Sunucunun Güncellemeler sekmesinden güncelleyebilirsin.",
-		"game.updated.title":    "{server} {version} sürümüne güncellendi",
-		"game.updated.text":     "Önce eski sürümün yedeği alındı.",
-		"game.failed.title":     "{server}: güncelleme başarısız",
-		"game.failed.text":      "{error}",
-		"panel.available.title": "LatchAdmin {version} çıktı",
-		"panel.available.text":  "Bu panel {current} sürümünde. {urgent}",
-		"script.updated.title":  "{server}: {script} {version} sürümüne güncellendi",
-		"script.updated.text":   "Latch'ten otomatik kuruldu. {applies}",
-		"players.record.title":  "{server}: yeni oyuncu rekoru",
-		"players.record.text":   "Aynı anda {players} oyuncu çevrimiçi.",
-		"latch.lost.title":      "Latch bağlantısı çalışmıyor",
-		"latch.lost.text":       "Hesap anahtarı heylatch.app'te iptal edilmiş. Script'ler çalışmaya devam eder ama panel yeniden bağlanana kadar güncellenmez.",
-		"test.title":            "LatchAdmin deneme mesajı",
-		"test.text":             "Bu webhook kuruldu. Seçtiğin panel olayları burada görünecek.",
-		"urgent":                "Latch ekibi bu sürümü acil olarak işaretledi. ",
-		"restartIn":             "LatchAdmin {in} sonra yeniden başlatacak.",
-		"noRestart":             "Çökme sonrası yeniden başlatma kapalı.",
-		"appliesNow":            "Resource yeniden yüklendi.",
-		"appliesRestart":        "Bir sonraki sunucu yeniden başlatmasında devreye girer.",
-	},
+var linkRe = regexp.MustCompile(`https?://\S+`)
+
+// Redact removes links (webhook URLs, signed download links) from text that is stored or sent, and caps it.
+func Redact(s string) string {
+	s = linkRe.ReplaceAllString(s, "[link]")
+	if len(s) > 300 {
+		s = s[:300] + "…"
+	}
+	return s
 }
 
-// Text returns a shared phrase in a language (used to fill {urgent}, {restart}, {applies}).
-func Text(lang, key string) string {
-	if t, ok := texts[lang]; ok {
-		return t[key]
-	}
-	return texts["en"][key]
-}
+// Text returns a phrase in a language.
+func Text(lang, key string) string { return phrases(lang)[key] }
 
 // resolve turns "@key" or "@key|name=value" into a phrase in the webhook's language.
 func resolve(lang, v string) string {
@@ -236,4 +204,115 @@ func resolve(lang, v string) string {
 		out = strings.ReplaceAll(out, "{"+name+"}", val)
 	}
 	return out
+}
+
+var texts = map[string]map[string]string{
+	"en": {
+		"server.crash.title":    "{server} crashed",
+		"server.crash.text":     "The server stopped unexpectedly. {restart}",
+		"server.ready.title":    "{server} is online",
+		"server.ready.text":     "The server started and accepts players.",
+		"server.stop.title":     "{server} stopped",
+		"server.stop.text":      "Someone stopped the server from the panel. It stays off until it's started again.",
+		"server.restart.title":  "{server}: scheduled restart",
+		"server.restart.text":   "The daily restart is starting. Players are disconnected for a moment.",
+		"game.available.title":  "{game} {version} is out",
+		"game.available.text":   "A new game version is available for {server}. {urgent}Players' launchers update too, so update the server soon.",
+		"game.updated.title":    "{server} updated to {version}",
+		"game.updated.text":     "The new runtime is installed. A backup of the previous version was made first.",
+		"game.failed.title":     "{server}: update failed",
+		"game.failed.text":      "The update didn't go through and the previous version was put back.",
+		"panel.available.title": "LatchAdmin {version} is out",
+		"panel.available.text":  "A new panel version is available. {urgent}",
+		"script.updated.title":  "{script} updated on {server}",
+		"script.updated.text":   "A new version was installed from Latch automatically. {applies}",
+		"players.record.title":  "{server}: new player record",
+		"players.record.text":   "More players are online than ever before on this server.",
+		"latch.lost.title":      "Latch link stopped working",
+		"latch.lost.text":       "The account key was revoked on heylatch.app. Installed scripts keep running, but won't update until the panel is linked again from its Latch page.",
+		"test.title":            "LatchAdmin is connected",
+		"test.text":             "This channel is set up. The events you picked will show up here.",
+		"urgent":                "The Latch team marked it urgent. ",
+		"restartIn":             "LatchAdmin restarts it in {in}.",
+		"noRestart":             "Crash restarts are off, so it stays down.",
+		"appliesNow":            "The resource was reloaded.",
+		"appliesRestart":        "It runs from the next server restart.",
+		"openPanel":             "Open in panel",
+		"allServers":            "All",
+		"f.server":              "Server",
+		"f.game":                "Game",
+		"f.version":             "Version",
+		"f.exit":                "Exit",
+		"f.uptime":              "Ran for",
+		"f.players":             "Players online",
+		"f.crashes":             "Crashes in a row",
+		"f.port":                "Port",
+		"f.capacity":            "Slots",
+		"f.startup":             "Started in",
+		"f.installed":           "Installed",
+		"f.latest":              "New",
+		"f.backup":              "Backup",
+		"f.target":              "Target version",
+		"f.error":               "Error",
+		"f.previous":            "Previous version",
+		"f.record":              "New record",
+		"f.previousRecord":      "Previous record",
+		"f.time":                "Time",
+		"f.events":              "Events",
+		"f.servers":             "Servers",
+	},
+	"tr": {
+		"server.crash.title":    "{server} çöktü",
+		"server.crash.text":     "Sunucu beklenmedik şekilde durdu. {restart}",
+		"server.ready.title":    "{server} açık",
+		"server.ready.text":     "Sunucu başladı ve oyuncu kabul ediyor.",
+		"server.stop.title":     "{server} durdu",
+		"server.stop.text":      "Sunucu panelden durduruldu. Yeniden başlatılana kadar kapalı kalır.",
+		"server.restart.title":  "{server}: planlı yeniden başlatma",
+		"server.restart.text":   "Günlük yeniden başlatma başlıyor. Oyuncuların bağlantısı kısa süre kesilir.",
+		"game.available.title":  "{game} {version} çıktı",
+		"game.available.text":   "{server} için yeni oyun sürümü var. {urgent}Oyuncuların launcher'ı da güncelleneceği için sunucuyu yakında güncelle.",
+		"game.updated.title":    "{server} {version} sürümüne güncellendi",
+		"game.updated.text":     "Yeni sürüm kuruldu. Önce eski sürümün yedeği alındı.",
+		"game.failed.title":     "{server}: güncelleme başarısız",
+		"game.failed.text":      "Güncelleme tamamlanamadı ve önceki sürüm geri yüklendi.",
+		"panel.available.title": "LatchAdmin {version} çıktı",
+		"panel.available.text":  "Yeni bir panel sürümü var. {urgent}",
+		"script.updated.title":  "{script}, {server} sunucusunda güncellendi",
+		"script.updated.text":   "Latch'ten otomatik olarak yeni sürüm kuruldu. {applies}",
+		"players.record.title":  "{server}: yeni oyuncu rekoru",
+		"players.record.text":   "Bu sunucuda şimdiye kadarki en yüksek çevrimiçi oyuncu sayısına ulaşıldı.",
+		"latch.lost.title":      "Latch bağlantısı çalışmıyor",
+		"latch.lost.text":       "Hesap anahtarı heylatch.app'te iptal edilmiş. Kurulu script'ler çalışmaya devam eder ama panel Latch sayfasından yeniden bağlanana kadar güncellenmez.",
+		"test.title":            "LatchAdmin bağlandı",
+		"test.text":             "Bu kanal hazır. Seçtiğin olaylar burada görünecek.",
+		"urgent":                "Latch ekibi bu sürümü acil olarak işaretledi. ",
+		"restartIn":             "LatchAdmin {in} sonra yeniden başlatacak.",
+		"noRestart":             "Çökme sonrası yeniden başlatma kapalı, sunucu kapalı kalır.",
+		"appliesNow":            "Resource yeniden yüklendi.",
+		"appliesRestart":        "Bir sonraki sunucu yeniden başlatmasında devreye girer.",
+		"openPanel":             "Panelde aç",
+		"allServers":            "Tümü",
+		"f.server":              "Sunucu",
+		"f.game":                "Oyun",
+		"f.version":             "Sürüm",
+		"f.exit":                "Çıkış",
+		"f.uptime":              "Çalışma süresi",
+		"f.players":             "Çevrimiçi oyuncu",
+		"f.crashes":             "Art arda çökme",
+		"f.port":                "Port",
+		"f.capacity":            "Slot",
+		"f.startup":             "Açılış süresi",
+		"f.installed":           "Kurulu",
+		"f.latest":              "Yeni",
+		"f.backup":              "Yedek",
+		"f.target":              "Hedef sürüm",
+		"f.error":               "Hata",
+		"f.previous":            "Önceki sürüm",
+		"f.record":              "Yeni rekor",
+		"f.previousRecord":      "Önceki rekor",
+		"f.time":                "Saat",
+		"f.events":              "Olaylar",
+		"f.servers":             "Sunucular",
+	},
 }

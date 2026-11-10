@@ -533,6 +533,8 @@ export default {
     },
     checkLatch: "Read versions from Latch",
     checkLatchHelp: "Shows urgent marks from the Latch team. Off: versions come from MafiaHub and GitHub, and Latch isn't contacted unless you link an account.",
+    publicUrl: "Public address",
+    publicUrlHelp: "The address you open this panel at from outside, like https://panel.example.com. Discord notifications link to it. Leave empty for no links.",
   },
   account: {
     passwordTitle: "Password",

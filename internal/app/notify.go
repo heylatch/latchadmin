@@ -65,12 +65,14 @@ func (a *App) deliver(ctx context.Context, e notify.Event) {
 func (a *App) SendWebhook(ctx context.Context, w store.Webhook, e notify.Event, panel string) error {
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	err := notify.Send(ctx, secret.MustOpen(w.URL), notify.Message(e, w.Lang, panel))
+	var public string
+	a.Store.Read(func(st *store.State) { public = st.Settings.PublicURL })
+	err := notify.Send(ctx, secret.MustOpen(w.URL), notify.Message(e, w.Lang, panel, public))
 	_ = a.Store.Update(func(st *store.State) error {
 		for i := range st.Webhooks {
 			if st.Webhooks[i].ID == w.ID {
 				if err != nil {
-					st.Webhooks[i].LastError = err.Error()
+					st.Webhooks[i].LastError = notify.Redact(err.Error())
 				} else {
 					st.Webhooks[i].LastError, st.Webhooks[i].LastSentAt = "", time.Now().UTC()
 				}
@@ -111,7 +113,11 @@ func (a *App) notifyVersions() {
 		if info.Urgent != nil {
 			urgent = "@urgent"
 		}
-		a.Notify(notify.Event{Kind: "game.available", ServerID: sv.ID, Server: sv.Name, Vars: map[string]string{"game": g.Label, "version": info.Latest, "current": sv.Version, "urgent": urgent}})
+		fields := []notify.Field{{Label: "f.installed", Value: sv.Version}, {Label: "f.latest", Value: info.Latest}}
+		if info.Urgent != nil && info.Urgent.Note != nil {
+			fields = append(fields, notify.Field{Label: "f.note", Value: *info.Urgent.Note})
+		}
+		a.Notify(notify.Event{Kind: "game.available", ServerID: sv.ID, Server: sv.Name, Link: "/servers/" + sv.ID + "/updates", Vars: map[string]string{"game": g.Label, "version": info.Latest, "urgent": urgent}, Fields: fields})
 	}
 	if buildinfo.IsDev() {
 		return
@@ -122,7 +128,11 @@ func (a *App) notifyVersions() {
 		if info.Urgent != nil {
 			urgent = "@urgent"
 		}
-		a.Notify(notify.Event{Kind: "panel.available", Vars: map[string]string{"version": info.Latest, "current": buildinfo.Version, "urgent": urgent}})
+		fields := []notify.Field{{Label: "f.installed", Value: buildinfo.Version}, {Label: "f.latest", Value: info.Latest}}
+		if info.Urgent != nil && info.Urgent.Note != nil {
+			fields = append(fields, notify.Field{Label: "f.note", Value: *info.Urgent.Note})
+		}
+		a.Notify(notify.Event{Kind: "panel.available", Link: "/settings", Vars: map[string]string{"version": info.Latest, "urgent": urgent}, Fields: fields})
 	}
 }
 
@@ -132,17 +142,47 @@ func (a *App) recordPlayers(sv store.Server, players int) {
 	if players < 5 {
 		return
 	}
-	beat := false
+	beat, previous := false, 0
 	_ = a.Store.Update(func(st *store.State) error {
 		if st.PlayerRecords == nil {
 			st.PlayerRecords = map[string]int{}
 		}
-		if players > st.PlayerRecords[sv.ID] {
+		if previous = st.PlayerRecords[sv.ID]; players > previous {
 			st.PlayerRecords[sv.ID], beat = players, true
 		}
 		return nil
 	})
 	if beat {
-		a.Notify(notify.Event{Kind: "players.record", ServerID: sv.ID, Server: sv.Name, Vars: map[string]string{"players": fmt.Sprint(players)}})
+		fields := []notify.Field{{Label: "f.record", Value: fmt.Sprint(players)}}
+		if previous > 0 {
+			fields = append(fields, notify.Field{Label: "f.previousRecord", Value: fmt.Sprint(previous)})
+		}
+		if max := a.Proc(sv.ID).Status().MaxPlayers; max > 0 {
+			fields = append(fields, notify.Field{Label: "f.capacity", Value: fmt.Sprint(max)})
+		}
+		a.Notify(notify.Event{Kind: "players.record", ServerID: sv.ID, Server: sv.Name, Link: "/servers/" + sv.ID + "/performance", Fields: fields})
 	}
+}
+
+// duration writes "2h 13m", "4m 10s" or "12s".
+func duration(d time.Duration) string {
+	d = d.Round(time.Second)
+	switch {
+	case d >= 24*time.Hour:
+		return fmt.Sprintf("%dd %dh", int(d.Hours())/24, int(d.Hours())%24)
+	case d >= time.Hour:
+		return fmt.Sprintf("%dh %dm", int(d.Hours()), int(d.Minutes())%60)
+	case d >= time.Minute:
+		return fmt.Sprintf("%dm %ds", int(d.Minutes()), int(d.Seconds())%60)
+	}
+	return fmt.Sprintf("%ds", int(d.Seconds()))
+}
+
+// gameLine is "Arcane MP 1.12.2" for a server.
+func gameLine(sv store.Server) string {
+	g, _ := games.ByID(sv.Game)
+	if sv.Version == "" {
+		return g.Label
+	}
+	return g.Label + " " + sv.Version
 }

@@ -533,6 +533,8 @@ export default {
     },
     checkLatch: "Sürümleri Latch'ten oku",
     checkLatchHelp: "Latch ekibinin acil işaretlerini gösterir. Kapalıyken sürümler MafiaHub ve GitHub'dan gelir, hesap bağlamadıkça Latch'e hiç bağlanılmaz.",
+    publicUrl: "Açık adres",
+    publicUrlHelp: "Bu paneli dışarıdan açtığın adres, örneğin https://panel.example.com. Discord bildirimlerindeki düğme buraya gider. Boş bırakırsan düğme olmaz.",
   },
   account: {
     passwordTitle: "Parola",

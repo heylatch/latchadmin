@@ -88,6 +88,8 @@ type Settings struct {
 	SelfUpdate string `json:"selfUpdate"`
 	// CheckLatch: read versions from the Latch manifest (anonymous GET). Off = GitHub only, no Latch contact.
 	CheckLatch bool `json:"checkLatch"`
+	// PublicURL is how the panel is reached from outside (https://panel.example.com), for links in notifications.
+	PublicURL string `json:"publicUrl"`
 }
 
 // Webhook is a Discord webhook and the events it receives.

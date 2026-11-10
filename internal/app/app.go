@@ -137,7 +137,17 @@ func (a *App) onState(id string, s supervisor.State) {
 		a.Metrics.AddEvent(id, "start", "")
 	case supervisor.Running:
 		a.Metrics.AddEvent(id, "ready", "")
-		a.notifyServer(id, "server.ready", nil)
+		if sv, ok := a.Store.Server(id); ok {
+			st := a.Proc(id).Status()
+			fields := []notify.Field{{Label: "f.game", Value: gameLine(sv)}, {Label: "f.port", Value: fmt.Sprint(sv.Port)}}
+			if !st.StartedAt.IsZero() && !st.ReadyAt.IsZero() {
+				fields = append(fields, notify.Field{Label: "f.startup", Value: duration(st.ReadyAt.Sub(st.StartedAt))})
+			}
+			if st.Crashes > 0 {
+				fields = append(fields, notify.Field{Label: "f.crashes", Value: fmt.Sprint(st.Crashes)})
+			}
+			a.Notify(notify.Event{Kind: "server.ready", ServerID: id, Server: sv.Name, Link: "/servers/" + id, Fields: fields})
+		}
 		// The command list (for console suggestions) and the player count, once the console answers.
 		go func() {
 			p := a.Proc(id)
@@ -151,8 +161,13 @@ func (a *App) onState(id string, s supervisor.State) {
 		a.mu.Lock()
 		quiet := a.shuttingDown
 		a.mu.Unlock()
-		if !quiet && !a.Proc(id).Restarting() && a.Jobs.Active(id) == nil {
-			a.notifyServer(id, "server.stop", nil)
+		if sv, ok := a.Store.Server(id); ok && !quiet && !a.Proc(id).Restarting() && a.Jobs.Active(id) == nil {
+			st := a.Proc(id).Status()
+			fields := []notify.Field{{Label: "f.game", Value: gameLine(sv)}}
+			if !st.StartedAt.IsZero() {
+				fields = append(fields, notify.Field{Label: "f.uptime", Value: duration(time.Since(st.StartedAt))})
+			}
+			a.Notify(notify.Event{Kind: "server.stop", ServerID: id, Server: sv.Name, Link: "/servers/" + id, Fields: fields})
 		}
 	case supervisor.Crashed:
 		st := a.Proc(id).Status()
@@ -161,7 +176,16 @@ func (a *App) onState(id string, s supervisor.State) {
 		if !st.NextStart.IsZero() {
 			restart = "@restartIn|in=" + time.Until(st.NextStart).Round(time.Second).String()
 		}
-		a.notifyServer(id, "server.crash", map[string]string{"exit": st.LastExit, "restart": restart})
+		if sv, ok := a.Store.Server(id); ok {
+			fields := []notify.Field{{Label: "f.exit", Value: st.LastExit}, {Label: "f.game", Value: gameLine(sv)}}
+			if !st.StartedAt.IsZero() {
+				fields = append(fields, notify.Field{Label: "f.uptime", Value: duration(time.Since(st.StartedAt))})
+			}
+			if st.Crashes > 1 {
+				fields = append(fields, notify.Field{Label: "f.crashes", Value: fmt.Sprint(st.Crashes)})
+			}
+			a.Notify(notify.Event{Kind: "server.crash", ServerID: id, Server: sv.Name, Link: "/servers/" + id, Vars: map[string]string{"restart": restart}, Fields: fields})
+		}
 	}
 	a.mu.Lock()
 	quiet := a.shuttingDown
@@ -174,13 +198,6 @@ func (a *App) onState(id string, s supervisor.State) {
 		_ = a.Store.UpdateServer(id, func(sv *store.Server) error { sv.WasRunning = true; return nil })
 	case supervisor.Stopped:
 		_ = a.Store.UpdateServer(id, func(sv *store.Server) error { sv.WasRunning = false; return nil })
-	}
-}
-
-// notifyServer sends a server event, with the server's current name.
-func (a *App) notifyServer(id, kind string, vars map[string]string) {
-	if sv, ok := a.Store.Server(id); ok {
-		a.Notify(notify.Event{Kind: kind, ServerID: id, Server: sv.Name, Vars: vars})
 	}
 }
 
@@ -283,12 +300,12 @@ func (a *App) UpdateGame(id, version, user string) (*Job, error) {
 		if err != nil {
 			p.Panelf("Update failed: %v", err)
 			a.Store.Audit(user, "game.updateFailed", sv.Name, map[string]string{"error": err.Error()})
-			a.Notify(notify.Event{Kind: "game.failed", ServerID: id, Server: sv.Name, Vars: map[string]string{"error": err.Error()}})
+			a.Notify(notify.Event{Kind: "game.failed", ServerID: id, Server: sv.Name, Link: "/servers/" + id + "/updates", Fields: []notify.Field{{Label: "f.installed", Value: sv.Version}, {Label: "f.target", Value: version}, {Label: "f.error", Value: notify.Redact(err.Error())}}})
 			return nil, err
 		}
 		_ = a.Store.UpdateServer(id, func(s *store.Server) error { s.Version = v; return nil })
 		a.Store.Audit(user, "game.update", sv.Name, map[string]string{"from": sv.Version, "to": v, "backup": backup.Name})
-		a.Notify(notify.Event{Kind: "game.updated", ServerID: id, Server: sv.Name, Vars: map[string]string{"version": v}})
+		a.Notify(notify.Event{Kind: "game.updated", ServerID: id, Server: sv.Name, Link: "/servers/" + id + "/updates", Vars: map[string]string{"version": v}, Fields: []notify.Field{{Label: "f.previous", Value: orUnknown(sv.Version)}, {Label: "f.version", Value: v}, {Label: "f.backup", Value: backup.Name}}})
 		p.Panelf("Updated to %s. Backup: backups/%s", v, backup.Name)
 		_ = p.SetUpdating(false)
 		if wasUp {
@@ -392,7 +409,11 @@ func (a *App) schedule(ctx context.Context) {
 			continue
 		}
 		p.Panelf("Scheduled restart")
-		a.Notify(notify.Event{Kind: "server.restart", ServerID: sv.ID, Server: sv.Name, Vars: map[string]string{"time": hm}})
+		fields := []notify.Field{{Label: "f.time", Value: hm}}
+		if pl := p.Status().Players; pl != nil {
+			fields = append(fields, notify.Field{Label: "f.players", Value: fmt.Sprint(*pl)})
+		}
+		a.Notify(notify.Event{Kind: "server.restart", ServerID: sv.ID, Server: sv.Name, Link: "/servers/" + sv.ID, Fields: fields})
 		if a.pendingSelfUpdate() != "" {
 			// Every server comes back after the panel restarts.
 			a.applySelfUpdate(ctx)

@@ -32,14 +32,26 @@ func TestValidURL(t *testing.T) {
 }
 
 func TestMessage(t *testing.T) {
-	e := Event{Kind: "server.crash", Server: "Main", Vars: map[string]string{"exit": "exit code 3", "restart": "@restartIn|in=10s"}, At: time.Now()}
-	em := Message(e, "en", "Panel")["embeds"].([]embed)[0]
-	if em.Title != "Main crashed" || !strings.Contains(em.Description, "exit code 3") || !strings.Contains(em.Description, "restarts it in 10s") {
-		t.Fatalf("got %+v", em)
+	e := Event{Kind: "server.crash", Server: "Main*", Vars: map[string]string{"restart": "@restartIn|in=10s"}, Fields: []Field{{Label: "f.exit", Value: "exit code 3"}}, Link: "/servers/x", At: time.Now()}
+	msg := Message(e, "en", "Panel", "https://panel.example.com")
+	if msg["flags"] != isComponentsV2 {
+		t.Fatal("not a Components V2 message")
 	}
-	tr := Message(e, "tr", "Panel")["embeds"].([]embed)[0]
-	if tr.Title != "Main çöktü" || !strings.Contains(tr.Description, "10s sonra") {
-		t.Fatalf("got %+v", tr)
+	box := msg["components"].([]map[string]any)[0]["components"].([]map[string]any)
+	head := box[0]["content"].(string)
+	if !strings.Contains(head, "### Main\\* crashed") || !strings.Contains(head, "restarts it in 10s") {
+		t.Fatalf("head %q", head)
+	}
+	if !strings.Contains(box[1]["content"].(string), "**Exit:** exit code 3") {
+		t.Fatalf("fields %q", box[1]["content"])
+	}
+	btn := box[len(box)-1]["components"].([]map[string]any)[0]
+	if btn["url"] != "https://panel.example.com/servers/x" {
+		t.Fatalf("button %v", btn)
+	}
+	tr := Message(e, "tr", "Panel", "")["components"].([]map[string]any)[0]["components"].([]map[string]any)
+	if !strings.Contains(tr[0]["content"].(string), "çöktü") || !strings.Contains(tr[0]["content"].(string), "10s sonra") {
+		t.Fatalf("tr %q", tr[0]["content"])
 	}
 	for _, g := range Groups {
 		for _, ev := range g.Events {

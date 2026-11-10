@@ -159,7 +159,7 @@ func (a *App) keyFailed(err error) {
 		was := false
 		_ = a.Store.Update(func(st *store.State) error { was, st.Latch.Disconnected = st.Latch.Disconnected, true; return nil })
 		if !was {
-			a.Notify(notify.Event{Kind: "latch.lost"})
+			a.Notify(notify.Event{Kind: "latch.lost", Link: "/latch"})
 		}
 	}
 }
@@ -377,7 +377,8 @@ func (a *App) autoScripts(ctx context.Context) {
 				if pol == store.ScriptNow {
 					applies = "@appliesNow"
 				}
-				a.Notify(notify.Event{Kind: "script.updated", ServerID: sv.ID, Server: sv.Name, Vars: map[string]string{"script": it.Script.Name, "version": res.Version, "applies": applies}})
+				a.Notify(notify.Event{Kind: "script.updated", ServerID: sv.ID, Server: sv.Name, Link: "/servers/" + sv.ID + "/scripts", Vars: map[string]string{"script": it.Script.Name, "applies": applies},
+					Fields: []notify.Field{{Label: "f.previous", Value: cur.Latch.Version}, {Label: "f.version", Value: res.Version}}})
 			}
 			if err != nil {
 				a.Proc(sv.ID).Panelf("Automatic update of %s failed: %v", it.Script.Slug, err)
