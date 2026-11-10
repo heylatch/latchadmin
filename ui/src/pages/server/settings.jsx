@@ -6,7 +6,7 @@ import { DownloadIcon, PlusIcon, XIcon } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field"
+import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Spinner } from "@/components/ui/spinner"
 import { Switch } from "@/components/ui/switch"
@@ -52,18 +52,18 @@ function General({ server, reload }) {
               <Input id="sv-name" value={form.name} onChange={(e) => set("name", e.target.value)} maxLength={60} required />
             </Field>
             <Field orientation="horizontal">
-              <Switch id="sv-autostart" checked={form.autoStart} onCheckedChange={(v) => set("autoStart", v)} />
-              <div>
+              <FieldContent>
                 <FieldLabel htmlFor="sv-autostart">{t("serverSettings.autoStart")}</FieldLabel>
                 <FieldDescription>{t("serverSettings.autoStartHelp")}</FieldDescription>
-              </div>
+              </FieldContent>
+              <Switch id="sv-autostart" checked={form.autoStart} onCheckedChange={(v) => set("autoStart", v)} />
             </Field>
             <Field orientation="horizontal">
-              <Switch id="sv-autorestart" checked={form.autoRestart} onCheckedChange={(v) => set("autoRestart", v)} />
-              <div>
+              <FieldContent>
                 <FieldLabel htmlFor="sv-autorestart">{t("serverSettings.autoRestart")}</FieldLabel>
                 <FieldDescription>{t("serverSettings.autoRestartHelp")}</FieldDescription>
-              </div>
+              </FieldContent>
+              <Switch id="sv-autorestart" checked={form.autoRestart} onCheckedChange={(v) => set("autoRestart", v)} />
             </Field>
             <Field>
               <FieldLabel htmlFor="sv-time">{t("serverSettings.restarts")}</FieldLabel>

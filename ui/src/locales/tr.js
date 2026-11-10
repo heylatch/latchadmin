@@ -416,7 +416,7 @@ export default {
       offHelp: "Güncelleme çıktığında görürsün ve kendin kurarsın.",
     },
     checkLatch: "Sürümleri Latch'ten oku",
-    checkLatchHelp: "Panel ve oyun sürümlerinin acil işaretlerini Latch'ten alır. Kapalıyken: sürümler doğrudan MafiaHub ve GitHub'dan gelir ve bir hesap bağlamadıkça LatchAdmin Latch ile hiç iletişim kurmaz.",
+    checkLatchHelp: "Latch ekibinin acil işaretlerini gösterir. Kapalıyken sürümler MafiaHub ve GitHub'dan gelir, hesap bağlamadıkça Latch'e hiç bağlanılmaz.",
   },
   account: {
     passwordTitle: "Parola",

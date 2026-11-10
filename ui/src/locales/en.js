@@ -416,7 +416,7 @@ export default {
       offHelp: "You'll see when an update is out and install it yourself.",
     },
     checkLatch: "Read versions from Latch",
-    checkLatchHelp: "Gets urgent marks for panel and game releases from Latch. Off: versions come straight from MafiaHub and GitHub, and LatchAdmin never contacts Latch unless you link an account.",
+    checkLatchHelp: "Shows urgent marks from the Latch team. Off: versions come from MafiaHub and GitHub, and Latch isn't contacted unless you link an account.",
   },
   account: {
     passwordTitle: "Password",

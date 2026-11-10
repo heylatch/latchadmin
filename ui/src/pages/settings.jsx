@@ -6,7 +6,7 @@ import { CheckCircle2Icon, RefreshCwIcon, SirenIcon } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field"
+import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Spinner } from "@/components/ui/spinner"
@@ -149,11 +149,11 @@ function PanelSettings({ panel, reload }) {
             </RadioGroup>
           </Field>
           <Field orientation="horizontal">
-            <Switch id="check-latch" checked={panel.settings.checkLatch} onCheckedChange={(v) => save({ CheckLatch: v })} />
-            <div>
+            <FieldContent>
               <FieldLabel htmlFor="check-latch">{t("panelSettings.checkLatch")}</FieldLabel>
               <FieldDescription>{t("panelSettings.checkLatchHelp")}</FieldDescription>
-            </div>
+            </FieldContent>
+            <Switch id="check-latch" checked={panel.settings.checkLatch} onCheckedChange={(v) => save({ CheckLatch: v })} />
           </Field>
         </FieldGroup>
       </CardContent>
@@ -250,6 +250,7 @@ function TwoFactor() {
         <CardTitle>{t("account.totpTitle")}</CardTitle>
         <CardDescription>{t(user.totp ? "account.totpOn" : "account.totpText")}</CardDescription>
       </CardHeader>
+      {(user.totp || setup || error) && (
       <CardContent className="space-y-4">
         {user.totp ? (
           <Field>
@@ -271,6 +272,7 @@ function TwoFactor() {
         ) : null}
         <ErrorNote error={error} />
       </CardContent>
+      )}
       <CardFooter className="justify-end gap-2">
         {user.totp ? (
           <Button variant="outline" disabled={pending || !password} onClick={() => run(async () => (await api.totpDisable(password), setPassword(""), toast.success(t("account.totpDisabled")), refresh()))}>
