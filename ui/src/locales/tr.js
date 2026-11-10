@@ -165,6 +165,9 @@ export default {
     chooseBinary: "Dosyayı seç",
   },
   picker: {
+    address: "Klasör adresi",
+    go: "Bu klasöre git",
+    addressHelp: "Bir klasör yolu yapıştır ve Enter'a bas.",
     title: "Klasör seç",
     text: "LatchAdmin'in çalıştığı makinedeki klasörler.",
     up: "Bir üst klasör",

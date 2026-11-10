@@ -165,6 +165,9 @@ export default {
     chooseBinary: "Choose the file",
   },
   picker: {
+    address: "Folder address",
+    go: "Go to this folder",
+    addressHelp: "Paste a folder path and press Enter.",
     title: "Choose a folder",
     text: "Folders on the machine LatchAdmin runs on.",
     up: "Up one folder",

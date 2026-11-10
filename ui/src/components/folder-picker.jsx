@@ -1,9 +1,10 @@
 import { useState } from "react"
 import { useTranslation } from "react-i18next"
-import { ArrowUpIcon, FolderIcon, HardDriveIcon, ServerIcon } from "lucide-react"
+import { ArrowRightIcon, ArrowUpIcon, FolderIcon, HardDriveIcon, ServerIcon } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
 import { ErrorNote, Loading } from "@/components/common"
 import { useApi } from "@/hooks/use-api"
 import { api } from "@/lib/api"
@@ -22,12 +23,34 @@ export function FolderPicker({ open, onOpenChange, start, onPick, pickLabel }) {
           <DialogTitle>{t("picker.title")}</DialogTitle>
           <DialogDescription>{t("picker.text")}</DialogDescription>
         </DialogHeader>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="icon-sm" disabled={!l?.path} onClick={() => setPath(l?.parent ?? "")} aria-label={t("picker.up")}>
+        {/* Address bar: shows the open folder and takes a pasted path. Windows' "Copy as path" adds quotes; they're dropped.
+            key resets the field whenever another folder opens. */}
+        <form
+          className="flex items-center gap-2"
+          onSubmit={(e) => {
+            e.preventDefault()
+            setPath(new FormData(e.currentTarget).get("path").toString().trim().replace(/^["']|["']$/g, ""))
+          }}
+        >
+          <Button type="button" variant="outline" size="icon-sm" disabled={!l?.path} onClick={() => setPath(l?.parent ?? "")} aria-label={t("picker.up")}>
             <ArrowUpIcon aria-hidden="true" />
           </Button>
-          <code className="min-w-0 flex-1 truncate rounded-md bg-muted px-2 py-1 text-xs">{l?.path || t("picker.drives")}</code>
-        </div>
+          <Input
+            key={l?.path ?? ""}
+            name="path"
+            defaultValue={l?.path ?? ""}
+            placeholder={t("picker.drives")}
+            aria-label={t("picker.address")}
+            title={t("picker.addressHelp")}
+            onFocus={(e) => e.currentTarget.select()}
+            spellCheck={false}
+            autoComplete="off"
+            className="h-8 min-w-0 flex-1 font-mono text-xs"
+          />
+          <Button type="submit" variant="outline" size="icon-sm" aria-label={t("picker.go")}>
+            <ArrowRightIcon aria-hidden="true" />
+          </Button>
+        </form>
         <div className="h-80 overflow-y-auto rounded-lg border">
           {listing.error ? (
             <div className="p-3">
