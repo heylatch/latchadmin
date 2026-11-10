@@ -63,7 +63,7 @@ export default function ScriptsTab({ server }) {
 
   return (
     <div className="space-y-4">
-      {can("admin") && server.env && !hasLicense && (
+      {can("config.edit") && server.env && !hasLicense && (
         <Alert>
           <KeyRoundIcon aria-hidden="true" />
           <AlertTitle>{t("scripts.noLicenseTitle")}</AlertTitle>
@@ -118,7 +118,7 @@ export default function ScriptsTab({ server }) {
                         </TableCell>
                         <TableCell className="hidden font-mono text-sm sm:table-cell">{latest ?? "—"}</TableCell>
                         <TableCell className="hidden md:table-cell">
-                          <Select value={here.policy ?? "manual"} onValueChange={(v) => setPolicy(row, v)} disabled={!can("admin") || !here.installed}>
+                          <Select value={here.policy ?? "manual"} onValueChange={(v) => setPolicy(row, v)} disabled={!can("updates.scripts") || !here.installed}>
                             <SelectTrigger size="sm" className="w-48" aria-label={t("scripts.policy")}>
                               <SelectValue />
                             </SelectTrigger>
@@ -134,7 +134,7 @@ export default function ScriptsTab({ server }) {
                         <TableCell className="text-right">
                           {!usable ? (
                             <span className="text-sm text-muted-foreground">{t(it.status === "revoked" ? "scripts.revoked" : "scripts.unpublished")}</span>
-                          ) : can("admin") && (!here.installed || outdated) ? (
+                          ) : can("updates.scripts") && (!here.installed || outdated) ? (
                             <Button size="sm" variant={outdated ? "default" : "outline"} disabled={busy === it.script.id} onClick={() => install(row, running && outdated)}>
                               {busy === it.script.id && <Spinner />}
                               {outdated ? t("scripts.update") : t("scripts.install")}

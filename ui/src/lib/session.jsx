@@ -25,9 +25,13 @@ export function SessionProvider({ children }) {
 
 export const useSession = () => useContext(SessionContext)
 
-const rank = { viewer: 1, admin: 2, owner: 3 }
-// useCan reports whether the signed-in user has at least role.
+// Having the first also grants the second.
+const implied = { "console.write": "console.view", "config.edit": "config.view" }
+
+export const hasPerm = (list, perm) => Boolean(list?.some((p) => p === "all" || p === perm || implied[p] === perm))
+
+// useCan reports whether the signed-in user holds a permission.
 export function useCan() {
   const { user } = useSession()
-  return (role) => Boolean(user && rank[user.role] >= rank[role])
+  return (perm) => hasPerm(user?.permissions, perm)
 }

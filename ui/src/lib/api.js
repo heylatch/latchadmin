@@ -51,6 +51,7 @@ export const api = {
   totpEnable: (code) => post("/me/totp", { Code: code }),
   totpDisable: (password) => del("/me/totp", { Password: password }),
 
+  permissions: () => get("/permissions"),
   users: () => get("/users"),
   createUser: (b) => post("/users", b),
   updateUser: (u, b) => patch(`/users/${id(u)}`, b),

@@ -13,7 +13,7 @@ import { useCan } from "@/lib/session"
 export function ServerControls({ server, onChange, size = "sm" }) {
   const { t } = useTranslation()
   const can = useCan()
-  if (!can("admin")) return null
+  if (!can("server.control")) return null
   const state = server.status.state
   const run = async (action) => {
     try {
@@ -116,7 +116,7 @@ export default function OverviewPage() {
         title={t("overview.title")}
         description={t("overview.text")}
         actions={
-          can("owner") && (
+          can("server.add") && (
             <Button asChild>
               <Link to="/servers/new">
                 <PlusIcon aria-hidden="true" />
@@ -135,8 +135,8 @@ export default function OverviewPage() {
               ))}
             </div>
           ) : (
-            <EmptyState icon={ServerIcon} title={t("overview.emptyTitle")} description={t(can("owner") ? "overview.emptyText" : "overview.emptyViewer")}>
-              {can("owner") && (
+            <EmptyState icon={ServerIcon} title={t("overview.emptyTitle")} description={t(can("server.add") ? "overview.emptyText" : "overview.emptyViewer")}>
+              {can("server.add") && (
                 <>
                   <Button asChild>
                     <Link to="/servers/new?mode=install">

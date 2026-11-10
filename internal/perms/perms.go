@@ -73,7 +73,9 @@ func FromRole(role string) []string {
 		return []string{All}
 	case "admin":
 		return []string{"server.control", "server.settings", "console.write", "resources.manage", "config.edit", "updates.game", "updates.scripts", "panel.activity"}
+	case "viewer":
+		return []string{"console.view"}
 	default:
-		return []string{"console.view", "config.view"}
+		return []string{}
 	}
 }

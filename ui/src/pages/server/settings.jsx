@@ -145,7 +145,7 @@ export default function SettingsTab({ server, reload }) {
       <General server={server} reload={reload} />
       <div className="space-y-6">
         <Logs server={server} />
-        {can("owner") && (
+        {can("server.remove") && (
           <Card>
             <CardHeader>
               <CardTitle>{t("serverSettings.removeTitle")}</CardTitle>

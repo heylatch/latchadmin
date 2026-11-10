@@ -54,7 +54,7 @@ export default function ResourcesTab({ server }) {
       <div className="flex flex-wrap items-center gap-3">
         <Input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder={t("resources.search")} className="h-8 max-w-xs" aria-label={t("resources.search")} />
         <p className="text-sm text-muted-foreground">{t(running ? "resources.liveHint" : "resources.offHint")}</p>
-        {can("admin") && (
+        {can("resources.manage") && (
           <>
             <input ref={file} type="file" accept=".zip,application/zip" className="hidden" onChange={upload} />
             <Button size="sm" variant="outline" className="ml-auto" onClick={() => file.current?.click()} disabled={uploading}>
@@ -116,7 +116,7 @@ export default function ResourcesTab({ server }) {
                         )}
                       </TableCell>
                       <TableCell>
-                        {can("admin") && (
+                        {can("resources.manage") && (
                           <DropdownMenu>
                             <DropdownMenuTrigger asChild>
                               <Button variant="ghost" size="icon-sm" aria-label={t("common.actions")}>

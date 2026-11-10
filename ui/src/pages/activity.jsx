@@ -12,7 +12,7 @@ export default function ActivityPage() {
   const { t } = useTranslation()
   const can = useCan()
   const audit = useApi(api.audit, [], { poll: 15000 })
-  if (!can("admin")) return <Navigate to="/" replace />
+  if (!can("panel.activity")) return <Navigate to="/" replace />
   return (
     <div className="space-y-6">
       <PageHeader title={t("nav.activity")} description={t("activity.text")} />

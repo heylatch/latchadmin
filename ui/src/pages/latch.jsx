@@ -139,7 +139,7 @@ function Linked({ status, onChange }) {
         <CardDescription>
           <span className="font-mono">{status.accountId}</span> · {t("latch.linkedSince", { date: formatDateTime(status.linkedAt) })}
         </CardDescription>
-        {can("owner") && (
+        {can("panel.latch") && (
           <CardAction>
             <ConfirmButton
               variant="outline"
@@ -299,7 +299,7 @@ export default function LatchPage() {
             )}
             <div className="grid items-start gap-6 lg:grid-cols-2">
               <div className="space-y-6">
-                {s.linked && !s.disconnected ? <Linked status={s} onChange={status.reload} /> : can("owner") ? <LinkFlow status={s} onDone={status.reload} /> : <p className="text-sm text-muted-foreground">{t("latch.ownerOnly")}</p>}
+                {s.linked && !s.disconnected ? <Linked status={s} onChange={status.reload} /> : can("panel.latch") ? <LinkFlow status={s} onDone={status.reload} /> : <p className="text-sm text-muted-foreground">{t("latch.ownerOnly")}</p>}
               </div>
               <Telemetry status={s} />
             </div>

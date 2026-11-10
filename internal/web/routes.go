@@ -359,6 +359,25 @@ func grantable(me ctxUser, set []string) ([]string, error) {
 	return clean, nil
 }
 
+// outranks: a user may only change someone whose permissions and server access they hold themselves, so nobody
+// can take over (reset the password of) an account more powerful than their own.
+func outranks(me ctxUser, target store.User) bool {
+	for _, p := range target.Permissions {
+		if !perms.Has(me.Permissions, p) {
+			return false
+		}
+	}
+	if target.AllServers || perms.Has(target.Permissions, perms.All) {
+		return me.AllServers || perms.Has(me.Permissions, perms.All)
+	}
+	for _, id := range target.Servers {
+		if !me.CanServer(id) {
+			return false
+		}
+	}
+	return true
+}
+
 // grantCreator gives a user with limited server access the server they just added.
 func (s *Server) grantCreator(u ctxUser, id string) {
 	if u.CanServer(id) {
@@ -488,8 +507,10 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request, me ctxUser) 
 			}
 		}
 	})
-	// Only someone with all permissions can change a user who has them.
-	if perms.Has(target.Permissions, perms.All) && !perms.Has(me.Permissions, perms.All) {
+	if target.ID == "" {
+		return errNotFound
+	}
+	if !outranks(me, target) {
 		return errForbidden
 	}
 	var servers []string
@@ -537,7 +558,7 @@ func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request, me ctxUser) 
 	if err := s.App.Store.Update(func(st *store.State) error {
 		for i, u := range st.Users {
 			if u.ID == id {
-				if perms.Has(u.Permissions, perms.All) && !perms.Has(me.Permissions, perms.All) {
+				if !outranks(me, u) {
 					return errForbidden
 				}
 				name = u.Username

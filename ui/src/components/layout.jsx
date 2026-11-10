@@ -85,15 +85,15 @@ function Nav({ servers }) {
               </SidebarMenuButton>
             </SidebarMenuItem>
           ))}
-          {can("owner") && item("/servers/new", t("nav.addServer"), PlusIcon)}
+          {can("server.add") && item("/servers/new", t("nav.addServer"), PlusIcon)}
         </SidebarMenu>
       </SidebarGroup>
       <SidebarGroup>
         <SidebarGroupLabel>{t("nav.panel")}</SidebarGroupLabel>
         <SidebarMenu>
           {item("/latch", "Latch", KeyRoundIcon)}
-          {can("admin") && item("/activity", t("nav.activity"), ActivityIcon)}
-          {can("owner") && item("/users", t("nav.users"), UsersIcon)}
+          {can("panel.activity") && item("/activity", t("nav.activity"), ActivityIcon)}
+          {can("panel.users") && item("/users", t("nav.users"), UsersIcon)}
           {item("/settings", t("nav.settings"), SettingsIcon)}
         </SidebarMenu>
       </SidebarGroup>
@@ -117,7 +117,7 @@ function UserMenu() {
               <div className="flex size-8 items-center justify-center rounded-lg bg-muted text-xs font-medium uppercase">{user.username.slice(0, 2)}</div>
               <div className="grid flex-1 text-left text-sm leading-tight">
                 <span className="truncate font-medium">{user.username}</span>
-                <span className="truncate text-xs text-muted-foreground">{t(`role.${user.role}`)}</span>
+                <span className="truncate text-xs text-muted-foreground">{user.permissions.includes("all") ? t("perm.allShort") : t("perm.count", { count: user.permissions.length })}</span>
               </div>
               <ChevronsUpDownIcon className="ml-auto size-4" aria-hidden="true" />
             </SidebarMenuButton>
@@ -191,11 +191,11 @@ function UrgentBanners({ panel, servers }) {
   const items = []
   const urgent = panel?.update?.info?.urgent
   if (urgent && !panel.update.dev) {
-    items.push({ key: "panel", title: t("banner.panelTitle", { version: urgent.version }), note: urgent.note, to: "/settings", action: can("owner") ? t("banner.panelAction") : null })
+    items.push({ key: "panel", title: t("banner.panelTitle", { version: urgent.version }), note: urgent.note, to: "/settings", action: can("panel.update") ? t("banner.panelAction") : null })
   }
   for (const s of servers ?? []) {
     const u = s.update?.urgent
-    if (u) items.push({ key: s.id, title: t("banner.gameTitle", { server: s.name, game: s.gameName, version: u.version }), note: u.note, to: `/servers/${s.id}/updates`, action: can("admin") ? t("banner.gameAction") : null })
+    if (u) items.push({ key: s.id, title: t("banner.gameTitle", { server: s.name, game: s.gameName, version: u.version }), note: u.note, to: `/servers/${s.id}/updates`, action: can("updates.game") ? t("banner.gameAction") : null })
   }
   if (!items.length) return null
   return (

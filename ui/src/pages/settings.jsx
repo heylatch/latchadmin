@@ -86,7 +86,7 @@ function PanelUpdate({ panel, reload }) {
           {checking ? <Spinner /> : <RefreshCwIcon aria-hidden="true" />}
           {t("panelUpdate.check")}
         </Button>
-        {can("owner") && newer && (
+        {can("panel.update") && newer && (
           <>
             <Button variant="outline" onClick={() => install(false).catch((e) => toast.error(e.message))}>
               {t("panelUpdate.whenQuiet")}
@@ -306,7 +306,7 @@ export default function SettingsPage() {
           <div className="grid items-start gap-6 lg:grid-cols-2">
             <div className="space-y-6">
               <PanelUpdate panel={p} reload={panel.reload} />
-              {can("owner") && <PanelSettings panel={p} reload={panel.reload} />}
+              {can("panel.settings") && <PanelSettings panel={p} reload={panel.reload} />}
             </div>
             <div className="space-y-6">
               <Password />
