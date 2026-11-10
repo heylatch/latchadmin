@@ -34,7 +34,14 @@ const insecure = () => window.location.protocol === "http:" && !["localhost", "1
 export function SetupPage() {
   const { t } = useTranslation()
   const { setUser } = useSession()
-  const [form, setForm] = useState({ pin: "", username: "", password: "", confirm: "" })
+  // The link LatchAdmin prints in its console carries the PIN (?pin=123456). Take it, then drop it from the
+  // address bar so it doesn't stay in the history.
+  const [form, setForm] = useState(() => {
+    const params = new URLSearchParams(window.location.search)
+    const pin = /^\d{6}$/.test(params.get("pin") ?? "") ? params.get("pin") : ""
+    if (params.has("pin")) window.history.replaceState(null, "", window.location.pathname)
+    return { pin, username: "", password: "", confirm: "" }
+  })
   const [error, setError] = useState(null)
   const [pending, setPending] = useState(false)
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }))
@@ -67,12 +74,12 @@ export function SetupPage() {
             <FieldGroup>
               <Field>
                 <FieldLabel htmlFor="pin">{t("setup.pin")}</FieldLabel>
-                <Input id="pin" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={form.pin} onChange={set("pin")} className="font-mono tracking-widest" required autoFocus />
+                <Input id="pin" inputMode="numeric" autoComplete="one-time-code" maxLength={6} value={form.pin} onChange={set("pin")} className="font-mono tracking-widest" required autoFocus={!form.pin} />
                 <FieldDescription>{t("setup.pinHelp")}</FieldDescription>
               </Field>
               <Field>
                 <FieldLabel htmlFor="username">{t("auth.username")}</FieldLabel>
-                <Input id="username" autoComplete="username" value={form.username} onChange={set("username")} required />
+                <Input id="username" autoComplete="username" value={form.username} onChange={set("username")} required autoFocus={Boolean(form.pin)} />
               </Field>
               <Field>
                 <FieldLabel htmlFor="password">{t("auth.password")}</FieldLabel>

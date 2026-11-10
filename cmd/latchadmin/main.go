@@ -51,7 +51,8 @@ func main() {
 		log.Fatalf("LatchAdmin can't start: %v", err)
 	}
 	srv := web.New(a, ui.FS())
-	srv.OnPIN = printPIN
+	interactive := setupTerminal()
+	color = (interactive || os.Getenv("FORCE_COLOR") != "") && os.Getenv("NO_COLOR") == ""
 
 	addr := net.JoinHostPort(*host, strconv.Itoa(*port))
 	ln, err := net.Listen("tcp", addr)
@@ -62,18 +63,21 @@ func main() {
 	if *cert != "" {
 		scheme = "https"
 	}
-	fmt.Printf("\n  LatchAdmin %s\n  Data: %s\n", buildinfo.Version, *dataDir)
-	for _, u := range urls(scheme, *host, *port) {
-		fmt.Printf("  Open: %s\n", u)
-	}
-	if scheme == "http" && *host != "127.0.0.1" {
-		fmt.Println("  Note: the panel is served over plain HTTP. Put it behind HTTPS (a reverse proxy or --tls-cert)")
-		fmt.Println("        before signing in over the internet.")
-	}
+	links := urls(scheme, *host, *port)
+	printBanner(buildinfo.Version, *dataDir, links, scheme == "http" && *host != "127.0.0.1" && *host != "localhost")
+	// The setup link carries the PIN, so the page opens with it filled in. It's printed only here, on the
+	// machine's own console, and the page drops it from the address bar right away.
+	setupLink := func(pin string) string { return links[0] + "/?pin=" + pin }
+	srv.OnPIN = func(pin string) { printSetup(pin, setupLink(pin), false) }
 	if a.NeedsSetup() {
-		printPIN(a.PIN.New())
+		pin := a.PIN.New()
+		printSetup(pin, setupLink(pin), interactive)
+		if interactive {
+			openBrowser(setupLink(pin))
+		}
+	} else {
+		fmt.Println()
 	}
-	fmt.Println()
 
 	ctx, stop := context.WithCancel(context.Background())
 	a.Restart = func(exe string) {
@@ -108,10 +112,6 @@ func main() {
 	_ = hs.Shutdown(sctx)
 	cancel()
 	a.Shutdown()
-}
-
-func printPIN(pin string) {
-	fmt.Printf("\n  First-time setup PIN: %s\n  Enter it on the setup page to create the owner account.\n", pin)
 }
 
 // urls lists addresses to open the panel at.

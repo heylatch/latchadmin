@@ -46,13 +46,8 @@
 
 1. Download `latchadmin-windows-amd64.exe` from [Releases](https://github.com/heylatch/latchadmin/releases/latest).
 2. Put it in its own folder (for example `C:\LatchAdmin`) and double-click it. Windows SmartScreen may say the app is unrecognised: choose **More info → Run anyway**. The exe isn't code-signed yet; every release lists the exe's SHA-256 in `SHA256SUMS` so you can check it.
-3. A window opens with the panel's address and a **setup PIN**:
-   ```
-   LatchAdmin 0.1.0
-   Open: http://localhost:40120
-   First-time setup PIN: 694956
-   ```
-4. Open the address, enter the PIN and create the owner account.
+3. A window opens with the panel's address and a first-time setup box. Your browser opens the setup page with the **setup PIN** already filled in; if it doesn't, Ctrl+click the link in the box (or open `http://localhost:40120` and type the PIN).
+4. Create the owner account.
 
 Keep the window open while the panel runs. Closing it stops your game servers cleanly; they start again with the panel.
 
@@ -90,7 +85,7 @@ WantedBy=multi-user.target
 ```sh
 sudo systemctl daemon-reload
 sudo systemctl enable --now latchadmin
-journalctl -u latchadmin | grep PIN
+journalctl -u latchadmin | grep -A4 'First-time setup'
 ```
 
 Don't run it as root. The service user must be able to write to `/opt/latchadmin` (data and self-updates).
