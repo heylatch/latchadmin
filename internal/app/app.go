@@ -312,7 +312,7 @@ func (a *App) Run(ctx context.Context) {
 	go a.every(ctx, 30*time.Minute, 2*time.Minute, a.autoScripts)
 	go a.every(ctx, 30*time.Second, 30*time.Second, a.schedule)
 	go a.every(ctx, metrics.Interval, metrics.Interval, a.collect)
-	go a.every(ctx, 10*time.Minute, 10*time.Minute, func(context.Context) { _ = a.Metrics.Save() })
+	go a.every(ctx, 5*time.Minute, 5*time.Minute, func(context.Context) { _ = a.Metrics.Save() })
 	<-ctx.Done()
 }
 

@@ -24,9 +24,11 @@ export function TimeChart({ data, series, format, domain, xDomain, range, height
   const gid = useId().replace(/:/g, "")
   const config = Object.fromEntries(series.map((s) => [s.key, { label: s.label, color: s.color }]))
   const single = series.length === 1
+  // Evenly spaced time ticks across the whole range (recharts only labels where data is otherwise).
+  const ticks = xDomain ? Array.from({ length: 6 }, (_, i) => Math.round(xDomain[0] + ((xDomain[1] - xDomain[0]) * i) / 5)) : undefined
   const axis = {
-    x: <XAxis dataKey="t" type="number" scale="time" domain={xDomain ?? ["dataMin", "dataMax"]} allowDataOverflow tickFormatter={(t) => tickTime(t, range)} tickLine={false} axisLine={false} minTickGap={48} tickMargin={8} fontSize={11} />,
-    y: <YAxis tickFormatter={format} domain={domain ?? [0, "auto"]} tickLine={false} axisLine={false} width={56} fontSize={11} allowDecimals={false} />,
+    x: <XAxis dataKey="t" type="number" scale="time" domain={xDomain ?? ["dataMin", "dataMax"]} ticks={ticks} allowDataOverflow tickFormatter={(t) => tickTime(t, range)} tickLine={false} axisLine={false} minTickGap={48} tickMargin={8} fontSize={11} />,
+    y: <YAxis tickFormatter={format} domain={domain ?? [0, "auto"]} tickLine={false} axisLine={false} width={68} fontSize={11} allowDecimals={false} />,
     grid: <CartesianGrid vertical={false} strokeDasharray="3 3" className="stroke-border/60" />,
     tip: (
       <ChartTooltip
