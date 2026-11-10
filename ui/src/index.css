@@ -142,6 +142,30 @@
   html {
     @apply font-sans;
     }
+  /* Tailwind v4 dropped the pointer cursor on buttons; everything clickable gets it back. */
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  a[href],
+  label[for],
+  select:not(:disabled),
+  summary,
+  [role="tab"],
+  [role="option"],
+  [role="menuitem"],
+  [role="menuitemradio"],
+  [role="menuitemcheckbox"],
+  [role="checkbox"],
+  [role="radio"],
+  [role="switch"],
+  [data-slot="select-trigger"],
+  [data-slot="sidebar-menu-button"] {
+    cursor: pointer;
+  }
+  :disabled,
+  [aria-disabled="true"],
+  [data-disabled] {
+    cursor: not-allowed;
+  }
 }
 @layer base {
   /* Soft hover and focus transitions on interactive elements. Utilities override this. */
@@ -181,6 +205,14 @@
 
 html {
   scrollbar-gutter: stable;
+}
+/* Radix locks scrolling under menus and dialogs by hiding body overflow and padding it by the scrollbar width.
+   That removes the page scrollbar and shifts the page. Keep the scrollbar where it is; Radix still blocks
+   wheel and touch scrolling outside the open menu. */
+html body[data-scroll-locked] {
+  overflow: visible !important;
+  margin-right: 0 !important;
+  padding-right: 0 !important;
 }
 html:has([data-slot="sidebar-wrapper"]) {
   background-color: var(--sidebar);
