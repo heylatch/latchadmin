@@ -4,7 +4,7 @@
 
 **Added**
 - HMP Foundations for Arcane MP: install it with a new server or later from the server's Updates tab, and update its 30 resources together from the latest GitHub release. Old folders are kept in `backups/`, existing `data/` settings are never overwritten, and resources that clash with Foundations are listed.
-- Database setup: give an administrator login of MySQL or MariaDB (XAMPP's `root` works) and LatchAdmin creates the database and a user with rights on it only, or enter an existing database. The administrator login is used once and not saved; the server gets its login as secret variables (`HMP_MYSQL_*`).
+- Database setup: give an administrator login of MySQL or MariaDB (XAMPP's `root` works) and LatchAdmin creates the database and a user with rights on it only, or enter an existing database. The administrator login is used once and not saved; the server gets its login as secret variables (`HMP_MYSQL_*`). Setting up a database needs every permission, since the panel connects to the host you enter.
 
 ## 0.1.2
 
