@@ -35,6 +35,9 @@ const root = "hmp-foundations/"
 
 var versionRe = regexp.MustCompile(`^\d{1,4}\.\d{1,4}\.\d{1,4}$`)
 
+// configName is the only shape of example config file that is copied into data/ (no separators, no "..").
+var configName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,80}\.json$`)
+
 // Release is the latest published version.
 type Release struct {
 	Version  string `json:"version"`
@@ -198,10 +201,13 @@ func Install(ctx context.Context, serverDir string, rel Release, progress func(s
 	}
 	for _, f := range zr.File {
 		name, ok := strings.CutPrefix(f.Name, root+"examples/config/data/")
-		if !ok || name == "" || strings.Contains(name, "/") || !strings.HasSuffix(name, ".json") {
+		if !ok || !configName.MatchString(name) || strings.Contains(name, "..") {
 			continue
 		}
 		out := filepath.Join(dataDir, name)
+		if filepath.Dir(out) != filepath.Clean(dataDir) {
+			continue
+		}
 		if _, err := os.Lstat(out); err == nil {
 			continue
 		}

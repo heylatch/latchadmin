@@ -111,6 +111,7 @@ export default {
     version: "Sürüm",
   },
   add: {
+    dbOwnerOnly: "Veritabanını daha sonra bir sahip (tüm izinlere sahip bir hesap) sunucunun Güncellemeler sekmesinden kurar.",
     foundations: "HMP Foundations'ı da kur",
     foundationsHelp: "Arcane MP için açık kaynak oynanış altyapısı: karakter, envanter, evler, admin araçları ve daha fazlası için 30 resource. MySQL ya da MariaDB veritabanı ister.",
     dbLater: "Veritabanını sonra kuracağım (sunucunun Güncellemeler sekmesinden)",

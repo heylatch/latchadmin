@@ -162,7 +162,7 @@ export function FoundationsCard({ server, reload }) {
                   )}
                 </div>
               </div>
-              {can("config.edit") && (
+              {can("all") && (
                 <Button variant={s.database ? "outline" : "default"} size="sm" onClick={() => setDialog(true)}>
                   {s.database ? <PencilIcon aria-hidden="true" /> : <DatabaseIcon aria-hidden="true" />}
                   {s.database ? t("found.changeDatabase") : t("found.setupDatabase")}

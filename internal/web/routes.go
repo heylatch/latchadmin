@@ -85,7 +85,8 @@ func (s *Server) routes() {
 	m.HandleFunc("POST /api/servers/{id}/command", s.api("console.write", s.command))
 	m.HandleFunc("GET /api/servers/{id}/foundations", s.api("resources.manage", s.foundationsStatus))
 	m.HandleFunc("POST /api/servers/{id}/foundations", s.api("resources.manage", s.installFoundations))
-	m.HandleFunc("POST /api/servers/{id}/database", s.api("config.edit", s.setDatabase))
+	// The panel connects to whatever database host is entered, so only accounts with every permission set one up.
+	m.HandleFunc("POST /api/servers/{id}/database", s.api(perms.All, s.setDatabase))
 	m.HandleFunc("GET /api/servers/{id}/console", s.api("console.view", s.console))
 	m.HandleFunc("GET /api/servers/{id}/logs", s.api("console.view", s.logFiles))
 	m.HandleFunc("GET /api/servers/{id}/logs/{file}", s.api("console.view", s.logFile))
@@ -859,8 +860,8 @@ func (s *Server) installServer(w http.ResponseWriter, r *http.Request, u ctxUser
 	// The database is set up first, so a wrong password shows on the form instead of after a long download.
 	var db *dbsetup.Conn
 	if in.Database != nil && in.Foundations {
-		if !perms.Has(u.Permissions, "config.edit") {
-			return fail(403, "forbidden", "Setting up a database needs the 'Edit configuration' permission.")
+		if !perms.Has(u.Permissions, perms.All) {
+			return fail(403, "forbidden", "Setting up a database needs every permission.")
 		}
 		c, err := s.App.PrepareDatabase(r.Context(), *in.Database)
 		if err != nil {

@@ -111,6 +111,7 @@ export default {
     version: "Version",
   },
   add: {
+    dbOwnerOnly: "An owner (an account with every permission) sets up the database later, from the server's Updates tab.",
     foundations: "Also install HMP Foundations",
     foundationsHelp: "The open-source gameplay framework for Arcane MP: 30 resources for characters, inventory, houses, admin tools and more. It needs a MySQL or MariaDB database.",
     dbLater: "Set up the database later (from the server's Updates tab)",

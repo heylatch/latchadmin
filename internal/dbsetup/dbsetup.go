@@ -51,6 +51,8 @@ func (c *Conn) Validate(needDatabase bool) error {
 		return errors.New("enter the database user")
 	case len(c.Password) > 200:
 		return errors.New("the password is too long")
+	case blockedHost(c.Host):
+		return errors.New("that address can't be used for a database")
 	case needDatabase && !nameRe.MatchString(c.Database):
 		return errors.New("the database name may use letters, numbers and underscores (up to 32)")
 	}
@@ -136,6 +138,16 @@ func Create(ctx context.Context, admin Conn, database, user string) (Conn, error
 		return Conn{}, fmt.Errorf("the database was created, but the new user can't sign in: %w", err)
 	}
 	return out, nil
+}
+
+// blockedHost refuses link-local addresses (169.254.0.0/16, fe80::/10), where cloud providers serve instance
+// metadata and credentials, so the database form can't be used to reach them.
+func blockedHost(host string) bool {
+	ip := net.ParseIP(strings.Trim(host, "[]"))
+	if ip == nil {
+		return strings.EqualFold(host, "metadata.google.internal")
+	}
+	return ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() || ip.IsMulticast()
 }
 
 func isLocal(host string) bool {

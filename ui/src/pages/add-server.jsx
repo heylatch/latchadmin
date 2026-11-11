@@ -80,6 +80,7 @@ function joinPath(parent, name) {
 
 function InstallForm() {
   const { t } = useTranslation()
+  const can = useCan()
   const navigate = useNavigate()
   const { servers } = useOutletContext()
   const games = useApi(api.games)
@@ -116,7 +117,7 @@ function InstallForm() {
     try {
       const foundations = form.game === "arcane-mp" && form.foundations
       const { dbLater, ...rest } = form
-      setJob(await api.installServer({ ...rest, foundations, database: foundations && !dbLater ? databaseRequest(db) : undefined, port: Number(form.port) || 0 }))
+      setJob(await api.installServer({ ...rest, foundations, database: foundations && !dbLater && can("all") ? databaseRequest(db) : undefined, port: Number(form.port) || 0 }))
     } catch (err) {
       setError(err)
     }
@@ -210,7 +211,8 @@ function InstallForm() {
                     </FieldDescription>
                   </div>
                 </Field>
-                {form.foundations && (
+                {form.foundations && !can("all") && <p className="text-sm text-muted-foreground">{t("add.dbOwnerOnly")}</p>}
+                {form.foundations && can("all") && (
                   <>
                     <Field orientation="horizontal">
                       <Checkbox id="db-later" checked={form.dbLater} onCheckedChange={(v) => set("dbLater", v === true)} disabled={running} />
