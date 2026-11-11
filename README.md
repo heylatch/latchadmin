@@ -11,6 +11,10 @@
 - Resources: list, enable and disable, upload a .zip, restart one while the server runs.
 - Configuration: environment variables (secrets stored encrypted), `server.json`, resource `data/*.json` and the MafiaHub server token.
 
+**HMP Foundations (Arcane MP)**
+- Install [HMP Foundations](https://github.com/arcane-mp/foundations), the open-source gameplay framework, with a new server or later from its Updates tab, and update all 30 resources together. Old folders go to `backups/`; your `data/` settings are never overwritten, and resources that clash with Foundations are pointed out.
+- Set up its database like txAdmin does: give an administrator login of MySQL or MariaDB (XAMPP's `root` works) and LatchAdmin creates the database and a user that can only use it, or enter a database you already have. The administrator login is used once and not saved.
+
 **Updates**
 - Game updates in one click, with a backup first and one-click restore (the last 5 backups are kept).
 - Install new game versions by hand or at the next scheduled restart.

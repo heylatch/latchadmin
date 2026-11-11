@@ -12,10 +12,13 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { ConfirmButton, Query } from "@/components/common"
 import { useApi } from "@/hooks/use-api"
 import { api } from "@/lib/api"
+import { useCan } from "@/lib/session"
+import { FoundationsCard } from "@/pages/server/foundations"
 import { formatBytes, formatDateTime } from "@/lib/format"
 
 export default function UpdatesTab({ server, reload }) {
   const { t } = useTranslation()
+  const can = useCan()
   const backups = useApi(() => api.backups(server.id), [server.id])
   const [job, setJob] = useState(server.job ?? null)
   const latest = server.update?.latest
@@ -123,6 +126,7 @@ export default function UpdatesTab({ server, reload }) {
           )}
         </CardFooter>
       </Card>
+      {server.game === "arcane-mp" && can("resources.manage") && <FoundationsCard server={server} reload={reload} />}
       {server.gameUpdate === "restart" && !server.restarts?.length && (
         <p className="text-sm text-muted-foreground">
           {t("updates.needsSchedule")}{" "}

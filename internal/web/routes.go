@@ -23,6 +23,7 @@ import (
 	"github.com/heylatch/latchadmin/internal/app"
 	"github.com/heylatch/latchadmin/internal/auth"
 	"github.com/heylatch/latchadmin/internal/buildinfo"
+	"github.com/heylatch/latchadmin/internal/dbsetup"
 	"github.com/heylatch/latchadmin/internal/games"
 	"github.com/heylatch/latchadmin/internal/metrics"
 	"github.com/heylatch/latchadmin/internal/notify"
@@ -82,6 +83,9 @@ func (s *Server) routes() {
 	m.HandleFunc("DELETE /api/servers/{id}", s.api("server.remove", s.deleteServer))
 	m.HandleFunc("POST /api/servers/{id}/{action}", s.api(signedIn, s.serverAction)) // permission checked per action
 	m.HandleFunc("POST /api/servers/{id}/command", s.api("console.write", s.command))
+	m.HandleFunc("GET /api/servers/{id}/foundations", s.api("resources.manage", s.foundationsStatus))
+	m.HandleFunc("POST /api/servers/{id}/foundations", s.api("resources.manage", s.installFoundations))
+	m.HandleFunc("POST /api/servers/{id}/database", s.api("config.edit", s.setDatabase))
 	m.HandleFunc("GET /api/servers/{id}/console", s.api("console.view", s.console))
 	m.HandleFunc("GET /api/servers/{id}/logs", s.api("console.view", s.logFiles))
 	m.HandleFunc("GET /api/servers/{id}/logs/{file}", s.api("console.view", s.logFile))
@@ -852,7 +856,19 @@ func (s *Server) installServer(w http.ResponseWriter, r *http.Request, u ctxUser
 	if err := decode(r, &in); err != nil {
 		return err
 	}
-	j, err := s.App.InstallServer(in, u.Username, func(id string) { s.grantCreator(u, id) })
+	// The database is set up first, so a wrong password shows on the form instead of after a long download.
+	var db *dbsetup.Conn
+	if in.Database != nil && in.Foundations {
+		if !perms.Has(u.Permissions, "config.edit") {
+			return fail(403, "forbidden", "Setting up a database needs the 'Edit configuration' permission.")
+		}
+		c, err := s.App.PrepareDatabase(r.Context(), *in.Database)
+		if err != nil {
+			return fail(400, "database", sentence("Database: "+err.Error()))
+		}
+		db = &c
+	}
+	j, err := s.App.InstallServer(in, db, u.Username, func(id string) { s.grantCreator(u, id) })
 	if err != nil {
 		return badRequest(err)
 	}
@@ -1657,6 +1673,54 @@ func (s *Server) serverStats(w http.ResponseWriter, r *http.Request, _ ctxUser) 
 		"events":  events,
 		"host":    s.App.Metrics.HostInfo(),
 	})
+	return nil
+}
+
+// ---------- Foundations and database ----------
+
+// sentence ends s with a full stop unless it already ends with punctuation.
+func sentence(s string) string {
+	if strings.HasSuffix(s, ".") || strings.HasSuffix(s, "?") || strings.HasSuffix(s, "!") {
+		return s
+	}
+	return s + "."
+}
+
+func (s *Server) foundationsStatus(w http.ResponseWriter, r *http.Request, _ ctxUser) error {
+	st, err := s.App.FoundationsStatus(r.Context(), r.PathValue("id"))
+	if err != nil {
+		return err
+	}
+	writeJSON(w, 200, st)
+	return nil
+}
+
+func (s *Server) installFoundations(w http.ResponseWriter, r *http.Request, u ctxUser) error {
+	j, err := s.App.InstallFoundations(r.PathValue("id"), u.Username)
+	if err != nil {
+		return badRequest(err)
+	}
+	writeJSON(w, 202, j.Snapshot())
+	return nil
+}
+
+func (s *Server) setDatabase(w http.ResponseWriter, r *http.Request, u ctxUser) error {
+	var in app.DatabaseSetup
+	if err := decode(r, &in); err != nil {
+		return err
+	}
+	c, err := s.App.PrepareDatabase(r.Context(), in)
+	if err != nil {
+		return fail(400, "database", sentence("Database: "+err.Error()))
+	}
+	if err := s.App.SetDatabase(r.PathValue("id"), c, u.Username); err != nil {
+		return err
+	}
+	st, err := s.App.FoundationsStatus(r.Context(), r.PathValue("id"))
+	if err != nil {
+		return err
+	}
+	writeJSON(w, 200, st)
 	return nil
 }
 

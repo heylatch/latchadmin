@@ -12,6 +12,7 @@ import { Progress } from "@/components/ui/progress"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Spinner } from "@/components/ui/spinner"
 import { ErrorNote, PageHeader } from "@/components/common"
+import { DatabaseFields, databaseRequest, emptyDatabase } from "@/components/database-fields"
 import { FolderPicker } from "@/components/folder-picker"
 import { useApi } from "@/hooks/use-api"
 import { api } from "@/lib/api"
@@ -82,7 +83,8 @@ function InstallForm() {
   const navigate = useNavigate()
   const { servers } = useOutletContext()
   const games = useApi(api.games)
-  const [form, setForm] = useState({ game: "arcane-mp", name: "", dir: "", port: 27015, examples: false, license: "", token: "" })
+  const [form, setForm] = useState({ game: "arcane-mp", name: "", dir: "", port: 27015, examples: false, license: "", token: "", foundations: false, dbLater: false })
+  const [db, setDb] = useState(emptyDatabase)
   const [job, setJob] = useState(null)
   const [error, setError] = useState(null)
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }))
@@ -112,7 +114,9 @@ function InstallForm() {
     e.preventDefault()
     setError(null)
     try {
-      setJob(await api.installServer({ ...form, port: Number(form.port) || 0 }))
+      const foundations = form.game === "arcane-mp" && form.foundations
+      const { dbLater, ...rest } = form
+      setJob(await api.installServer({ ...rest, foundations, database: foundations && !dbLater ? databaseRequest(db) : undefined, port: Number(form.port) || 0 }))
     } catch (err) {
       setError(err)
     }
@@ -192,10 +196,37 @@ function InstallForm() {
                 {t("add.examples")}
               </FieldLabel>
             </Field>
+            {form.game === "arcane-mp" && (
+              <section className="space-y-4 rounded-lg border p-4">
+                <Field orientation="horizontal">
+                  <Checkbox id="foundations" checked={form.foundations} onCheckedChange={(v) => set("foundations", v === true)} disabled={running} className="mt-0.5 self-start" />
+                  <div className="space-y-1">
+                    <FieldLabel htmlFor="foundations">{t("add.foundations")}</FieldLabel>
+                    <FieldDescription>
+                      {t("add.foundationsHelp")}{" "}
+                      <a href="https://github.com/arcane-mp/foundations" target="_blank" rel="noreferrer" className="underline underline-offset-4">
+                        GitHub
+                      </a>
+                    </FieldDescription>
+                  </div>
+                </Field>
+                {form.foundations && (
+                  <>
+                    <Field orientation="horizontal">
+                      <Checkbox id="db-later" checked={form.dbLater} onCheckedChange={(v) => set("dbLater", v === true)} disabled={running} />
+                      <FieldLabel htmlFor="db-later" className="font-normal">
+                        {t("add.dbLater")}
+                      </FieldLabel>
+                    </Field>
+                    {!form.dbLater && <DatabaseFields value={db} onChange={setDb} disabled={running} idPrefix="add-db" />}
+                  </>
+                )}
+              </section>
+            )}
             {running && (
               <div className="space-y-2" aria-live="polite">
                 <Progress value={pct} />
-                <p className="text-sm text-muted-foreground">{job.total ? t("add.progress", { done: formatBytes(job.done), total: formatBytes(job.total) }) : t("add.starting")}</p>
+                <p className="text-sm text-muted-foreground">{job.stage === "foundations" ? t("add.installingFoundations") : job.total ? t("add.progress", { done: formatBytes(job.done), total: formatBytes(job.total) }) : t("add.starting")}</p>
               </div>
             )}
             <ErrorNote error={error} />

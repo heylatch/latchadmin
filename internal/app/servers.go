@@ -16,6 +16,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/heylatch/latchadmin/internal/dbsetup"
+	"github.com/heylatch/latchadmin/internal/foundations"
 	"github.com/heylatch/latchadmin/internal/games"
 	"github.com/heylatch/latchadmin/internal/release"
 	"github.com/heylatch/latchadmin/internal/resources"
@@ -32,6 +34,9 @@ type NewServer struct {
 	Examples bool   `json:"examples"`
 	License  string `json:"license"` // optional LATCH_LICENSE
 	Token    string `json:"token"`   // optional MafiaHub server token
+	// Arcane MP only: also install HMP Foundations, and the database it uses (prepared before the job starts).
+	Foundations bool           `json:"foundations"`
+	Database    *DatabaseSetup `json:"database,omitempty"`
 }
 
 func validName(n string) error {
@@ -42,7 +47,7 @@ func validName(n string) error {
 }
 
 // InstallServer downloads a game into an empty folder and adds the server when done.
-func (a *App) InstallServer(in NewServer, user string, onCreated func(id string)) (*Job, error) {
+func (a *App) InstallServer(in NewServer, db *dbsetup.Conn, user string, onCreated func(id string)) (*Job, error) {
 	g, ok := games.ByID(in.Game)
 	if !ok {
 		return nil, errors.New("unknown game")
@@ -92,6 +97,19 @@ func (a *App) InstallServer(in NewServer, user string, onCreated func(id string)
 		if err != nil {
 			return nil, err
 		}
+		var fres *foundations.Result
+		if in.Foundations && g.ID == foundations.Game {
+			j.Set("foundations", 0, 0)
+			rel, err := latestFoundations(ctx)
+			if err != nil {
+				return nil, err
+			}
+			r, err := foundations.Install(ctx, dir, rel, func(string) {})
+			if err != nil {
+				return nil, fmt.Errorf("the server is installed, but Foundations failed: %w", err)
+			}
+			fres = &r
+		}
 		sv := store.Server{ID: store.NewID(), Name: strings.TrimSpace(in.Name), Game: g.ID, Dir: dir, Port: in.Port, Version: v, Created: time.Now().UTC(), AutoRestart: true, GameUpdate: "manual"}
 		if lic := strings.TrimSpace(in.License); lic != "" {
 			sealed, err := secret.Seal(lic)
@@ -100,6 +118,11 @@ func (a *App) InstallServer(in NewServer, user string, onCreated func(id string)
 			}
 			sv.Env = append(sv.Env, store.EnvVar{Key: "LATCH_LICENSE", Value: sealed, Secret: true})
 		}
+		if db != nil {
+			if sv.Env, err = databaseEnv(sv.Env, *db); err != nil {
+				return nil, err
+			}
+		}
 		if err := a.Store.Update(func(st *store.State) error { st.Servers = append(st.Servers, sv); return nil }); err != nil {
 			return nil, err
 		}
@@ -107,7 +130,11 @@ func (a *App) InstallServer(in NewServer, user string, onCreated func(id string)
 		if onCreated != nil {
 			onCreated(sv.ID)
 		}
-		return map[string]string{"serverId": sv.ID, "version": v}, nil
+		out := map[string]any{"serverId": sv.ID, "version": v}
+		if fres != nil {
+			out["foundations"] = fres.Version
+		}
+		return out, nil
 	})
 }
 

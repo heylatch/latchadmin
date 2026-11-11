@@ -32,7 +32,7 @@ All outgoing traffic goes through [`internal/netx`](internal/netx/netx.go), whic
 | `api.github.com`, `github.com`, `release-assets.githubusercontent.com`, `objects.githubusercontent.com` | LatchAdmin releases |
 | `discord.com`, `discordapp.com` (and `canary.`/`ptb.`) | Discord webhooks you add for staff alerts and public status messages; only `/api/webhooks/` URLs are accepted. Alerts carry the event and server name; status messages carry only the servers, addresses, text and links you chose |
 
-The only other connection is a health check to `127.0.0.1:<game port>`.
+The panel also checks each game server's health at `127.0.0.1:<game port>`. When you set up a database (for HMP Foundations), it connects to the MySQL or MariaDB server you enter, and only for that: to test the login, or once with an administrator login to create the database and its user. The administrator login is never saved; the game server's own login is stored as secret variables. Foundations itself is downloaded from GitHub (`arcane-mp/foundations` releases) through the allow-list above.
 
 ### Latch has no way in
 

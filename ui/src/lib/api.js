@@ -106,6 +106,9 @@ export const api = {
   backups: (s) => get(`/servers/${id(s)}/backups`),
   restoreBackup: (s, name) => post(`/servers/${id(s)}/backups/${id(name)}/restore`),
   job: (j) => get(`/jobs/${id(j)}`),
+  foundations: (s) => get(`/servers/${id(s)}/foundations`),
+  installFoundations: (s) => post(`/servers/${id(s)}/foundations`),
+  setDatabase: (s, b) => post(`/servers/${id(s)}/database`, b),
 
   latch: () => get("/latch"),
   latchLink: () => post("/latch/link"),
