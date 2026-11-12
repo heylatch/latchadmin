@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.4
+
+**Changed**
+- Every available update now shows a card at the top of the panel, not only urgent ones. Regular updates get a calm card ("LatchAdmin 0.1.4 is available") for the people who can install them; urgent ones stay red and are shown to everyone. Game updates for several servers on the same version share one card.
+
 ## 0.1.3
 
 **Added**

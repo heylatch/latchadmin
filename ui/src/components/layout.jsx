@@ -2,6 +2,7 @@ import { Link, NavLink, Outlet, useLocation } from "react-router"
 import { useTranslation } from "react-i18next"
 import {
   ActivityIcon,
+  ArrowUpCircleIcon,
   BellIcon,
   ChartLineIcon,
   ChevronsUpDownIcon,
@@ -188,30 +189,82 @@ export function Prefs() {
   )
 }
 
-// UrgentBanners: the Latch team marked a release urgent and this panel or a server runs an older version.
-function UrgentBanners({ panel, servers }) {
+// newer reports whether version a is higher than b ("1.12.3" > "1.12.2").
+function newer(a, b) {
+  const pa = String(a ?? "").split(".").map(Number)
+  const pb = String(b ?? "").split(".").map(Number)
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (pa[i] || 0) - (pb[i] || 0)
+    if (d) return d > 0
+  }
+  return false
+}
+
+// UpdateBanners: a card for every available update. Urgent ones (marked by the Latch team) are red and shown to
+// everyone; the rest are calm and shown to those who can install them. The card for a page's own update is left
+// out on that page (the panel's on Settings, a server's on its Updates tab).
+function UpdateBanners({ panel, servers, pathname }) {
   const { t } = useTranslation()
   const can = useCan()
   const items = []
-  const urgent = panel?.update?.info?.urgent
-  if (urgent && !panel.update.dev) {
-    items.push({ key: "panel", title: t("banner.panelTitle", { version: urgent.version }), note: urgent.note, to: "/settings", action: can("panel.update") ? t("banner.panelAction") : null })
+
+  const pu = panel?.update
+  const latestPanel = pu?.info?.latest
+  if (pu && !pu.dev && latestPanel && newer(latestPanel, pu.current) && pathname !== "/settings") {
+    const urgent = pu.info.urgent
+    if (urgent || can("panel.update")) {
+      items.push({
+        key: "panel",
+        urgent: Boolean(urgent),
+        title: urgent ? t("banner.panelTitle", { version: urgent.version }) : t("banner.panelAvailable", { version: latestPanel }),
+        note: urgent ? urgent.note || t("banner.noNote") : pu.pending ? t("banner.panelPending", { version: pu.pending }) : t("banner.panelCurrent", { version: pu.current }),
+        to: "/settings",
+        action: can("panel.update") ? t("banner.panelAction") : null,
+      })
+    }
   }
+
+  // Game updates: one card per game and version, however many servers it concerns.
+  const groups = new Map()
   for (const s of servers ?? []) {
-    const u = s.update?.urgent
-    if (u) items.push({ key: s.id, title: t("banner.gameTitle", { server: s.name, game: s.gameName, version: u.version }), note: u.note, to: `/servers/${s.id}/updates`, action: can("updates.game") ? t("banner.gameAction") : null })
+    const latest = s.update?.latest
+    if (!latest || !s.version || !newer(latest, s.version) || pathname.startsWith(`/servers/${s.id}/updates`)) continue
+    const urgent = s.update.urgent
+    if (!urgent && !can("updates.game")) continue
+    const key = `${s.game}:${latest}`
+    const g = groups.get(key) ?? { key, game: s.gameName, version: latest, urgent: null, servers: [] }
+    g.urgent ??= urgent
+    g.servers.push(s)
+    groups.set(key, g)
   }
+  for (const g of groups.values()) {
+    const one = g.servers.length === 1 ? g.servers[0] : null
+    items.push({
+      key: g.key,
+      urgent: Boolean(g.urgent),
+      title: g.urgent
+        ? one
+          ? t("banner.gameTitle", { server: one.name, game: g.game, version: g.version })
+          : t("banner.gameTitleMany", { game: g.game, version: g.version, count: g.servers.length })
+        : t("banner.gameAvailable", { game: g.game, version: g.version }),
+      note: g.urgent?.note || (g.urgent ? t("banner.noNote") : t("banner.gameOn", { servers: g.servers.map((s) => s.name).join(", "), count: g.servers.length })),
+      to: one ? `/servers/${one.id}/updates` : "/",
+      action: can("updates.game") ? (one ? t("banner.gameAction") : t("banner.gameActionMany")) : null,
+    })
+  }
+
   if (!items.length) return null
+  items.sort((a, b) => Number(b.urgent) - Number(a.urgent))
   return (
     <div className="space-y-3">
       {items.map((i) => (
-        <Alert key={i.key} variant="destructive">
-          <SirenIcon aria-hidden="true" />
+        <Alert key={i.key} variant={i.urgent ? "destructive" : "default"} className={i.urgent ? undefined : "bg-muted/30"}>
+          {i.urgent ? <SirenIcon aria-hidden="true" /> : <ArrowUpCircleIcon aria-hidden="true" />}
           <AlertTitle>{i.title}</AlertTitle>
           <AlertDescription className="flex flex-wrap items-center justify-between gap-3">
-            <span>{i.note || t("banner.noNote")}</span>
+            <span>{i.note}</span>
             {i.action && (
-              <Button size="sm" variant="outline" asChild>
+              <Button size="sm" variant={i.urgent ? "outline" : "secondary"} className="no-underline!" asChild>
                 <Link to={i.to}>{i.action}</Link>
               </Button>
             )}
@@ -263,7 +316,7 @@ export function Layout() {
         </header>
         <main className="flex-1 p-4 md:p-6 lg:p-8">
           <div className="mx-auto w-full max-w-6xl space-y-6 pb-16">
-            {pathname !== "/settings" && <UrgentBanners panel={panel.data} servers={servers.data} />}
+            <UpdateBanners panel={panel.data} servers={servers.data} pathname={pathname} />
             <Outlet context={{ servers, panel }} />
           </div>
         </main>
