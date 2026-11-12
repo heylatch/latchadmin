@@ -32,6 +32,9 @@
 - A public status message for your players: which servers are online, how many are playing and how to connect, kept up to date in one Discord message.
 - Activity log of who did what.
 
+**Languages**
+- The panel speaks English, German, Spanish, French, Italian, Portuguese, Russian and Turkish. Discord messages and in-game restart warnings come in English or Turkish.
+
 **People**
 - Users with 16 permissions in 6 groups (txAdmin style), access to all servers or chosen ones, generated passwords and two-factor sign-in.
 

@@ -6,6 +6,7 @@
 - Announcements on players' screens: write a message on the server's console page or its Settings and it appears at the top of every player's screen, in a card made for it (not the chat). Optionally with your name.
 - Restart warnings: before each scheduled restart players see a countdown, by default 10, 5 and 1 minutes before. The times and the language (English or Turkish) are set per server.
 - Both work through a small `latchadmin` resource that LatchAdmin keeps in the server's `resources/` folder and updates itself. It talks to the panel only on this machine, with a key of its own. It can be turned off per server.
+- Six more languages for the panel: German, Spanish, French, Italian, Portuguese and Russian, next to English and Turkish. Pick one from the language menu; a new visitor gets their browser's language.
 - Resource performance on the Performance tab: script time per tick, slowest tick, memory, garbage collection and slow ticks for every resource, charted for the heaviest ones over the last hour or six hours. LatchAdmin reads the server's own resource monitor once a minute, without filling the console.
 
 **Changed**
