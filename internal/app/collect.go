@@ -29,6 +29,7 @@ func (a *App) collect(_ context.Context) {
 		if st.State == supervisor.Running || st.State == supervisor.Starting || st.State == supervisor.Stopping {
 			if st.State == supervisor.Running && now.Unix()/int64(metrics.Interval/time.Second)%4 == 0 {
 				p.RefreshPlayers()
+				a.sampleResources(sv.ID, st)
 			}
 			st = p.Sample()
 			smp.Up, smp.CPU, smp.Mem = true, float32(st.CPU), st.MemBytes

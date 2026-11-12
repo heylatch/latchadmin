@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useTranslation } from "react-i18next"
-import { ArrowDownIcon, BoxIcon, DownloadIcon, EraserIcon, SendIcon, TerminalIcon, TriangleAlertIcon } from "lucide-react"
+import { ArrowDownIcon, BoxIcon, DownloadIcon, EraserIcon, MegaphoneIcon, SendIcon, TerminalIcon, TriangleAlertIcon } from "lucide-react"
+import { AnnounceDialog } from "@/components/announce-dialog"
 import { Button } from "@/components/ui/button"
 import { Card } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
@@ -58,6 +59,7 @@ export default function ConsoleTab({ server }) {
   const resourcesQ = useApi(() => api.resources(server.id), [server.id])
   const [lines, setLines] = useState([])
   const [clearedAt, setClearedAt] = useState(0)
+  const [announcing, setAnnouncing] = useState(false)
   const [hideNoise, setHideNoise] = useState(true)
   const [filter, setFilter] = useState("")
   const [follow, setFollow] = useState(true)
@@ -183,6 +185,12 @@ export default function ConsoleTab({ server }) {
         {!connected && <span className="text-sm text-warning">{t("console.reconnecting")}</span>}
         <div className="ml-auto flex items-center gap-1">
           <span className="mr-2 text-xs text-muted-foreground tabular-nums">{t("console.lines", { count: shown.length })}</span>
+          {can("console.write") && server.notices?.enabled && (
+            <Button variant="outline" size="sm" onClick={() => setAnnouncing(true)} disabled={server.status.state !== "running"}>
+              <MegaphoneIcon aria-hidden="true" />
+              {t("announce.open")}
+            </Button>
+          )}
           <Button variant="ghost" size="sm" onClick={() => setClearedAt(lines.at(-1)?.n ?? 0)} disabled={!visible.length}>
             <EraserIcon aria-hidden="true" />
             {t("console.clear")}
@@ -191,6 +199,7 @@ export default function ConsoleTab({ server }) {
             <DownloadIcon aria-hidden="true" />
             {t("console.download")}
           </Button>
+          {announcing && <AnnounceDialog server={server} open={announcing} onOpenChange={setAnnouncing} />}
         </div>
       </div>
       <Card className="relative gap-0 overflow-visible p-0">

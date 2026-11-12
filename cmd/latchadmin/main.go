@@ -87,6 +87,16 @@ func main() {
 			os.Exit(1)
 		}
 	}
+	// The latchadmin bridge resource asks for in-game notices here: a separate listener on loopback only, plain
+	// HTTP even when the panel serves HTTPS (the game's script engine can't check a self-made certificate).
+	if bl, err := net.Listen("tcp", "127.0.0.1:0"); err == nil {
+		a.BridgeURL = "http://" + bl.Addr().String() + "/bridge"
+		go func() {
+			_ = (&http.Server{Handler: srv.BridgeHandler(), ReadHeaderTimeout: 10 * time.Second}).Serve(bl)
+		}()
+	} else {
+		log.Printf("in-game notices are off: %v", err)
+	}
 	go a.Run(ctx)
 	go a.Boot()
 

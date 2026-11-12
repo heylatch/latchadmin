@@ -57,6 +57,10 @@ Releases are built and signed in GitHub Actions ([`.github/workflows/release.yml
 
 The Latch account key, environment values marked secret and TOTP secrets are encrypted with AES-256-GCM. The key lives in `latchadmin-data/secret.key`, protected with Windows DPAPI for the account that runs the panel, or with `0600` permissions on Linux. Secret values are never sent back to the browser.
 
+### In-game notices (the latchadmin resource)
+
+For announcements and restart warnings on players' screens, LatchAdmin writes a small resource of its own into each server's `resources/latchadmin` (the files are built into the panel, nothing is downloaded) and replaces it when it changes. It never touches a `resources/latchadmin` folder it didn't create. The resource asks the panel for notices over a second listener that LatchAdmin opens on `127.0.0.1` only, on a random port, with a key that belongs to that one server and is passed in the server's environment. That listener answers nothing but "are there notices for me"; the resource sends no player data back. Turning in-game notices off for a server removes the resource at its next start.
+
 ### Game servers
 
 Servers get a minimal environment (system paths plus the variables you set), not the panel's full environment. Variables that change how a program loads code (`PATH`, `LD_*`, `NODE_OPTIONS` and similar) can't be set from the panel. On Windows servers run in a job object, and on Linux they get a parent-death signal, so they never outlive the panel as orphans.

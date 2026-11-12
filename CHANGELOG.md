@@ -2,6 +2,12 @@
 
 ## 0.1.4
 
+**Added**
+- Announcements on players' screens: write a message on the server's console page or its Settings and it appears at the top of every player's screen, in a card made for it (not the chat). Optionally with your name.
+- Restart warnings: before each scheduled restart players see a countdown, by default 10, 5 and 1 minutes before. The times and the language (English or Turkish) are set per server.
+- Both work through a small `latchadmin` resource that LatchAdmin keeps in the server's `resources/` folder and updates itself. It talks to the panel only on this machine, with a key of its own. It can be turned off per server.
+- Resource performance on the Performance tab: script time per tick, slowest tick, memory, garbage collection and slow ticks for every resource, charted for the heaviest ones over the last hour or six hours. LatchAdmin reads the server's own resource monitor once a minute, without filling the console.
+
 **Changed**
 - Every available update now shows a card at the top of the panel, not only urgent ones. Regular updates get a calm card ("LatchAdmin 0.1.4 is available") for the people who can install them; urgent ones stay red and are shown to everyone. Game updates for several servers on the same version share one card.
 

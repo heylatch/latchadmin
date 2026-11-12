@@ -46,6 +46,10 @@ type App struct {
 	installing  map[string]bool // folders an install job is writing to
 	notes       chan notify.Event
 	boardMu     sync.Mutex // one status board update at a time, so a board never gets two messages
+	resmon      resmonStore
+	notices     noticeHub
+	// BridgeURL is the loopback address the latchadmin bridge resource asks for notices. Set by main.
+	BridgeURL string
 	// Restart is called after a self-update is swapped in. Set by main.
 	Restart func(exe string)
 }
@@ -100,7 +104,8 @@ func (a *App) spec(id string) (supervisor.Spec, error) {
 	if err != nil {
 		return supervisor.Spec{}, err
 	}
-	return supervisor.Spec{Exe: exe, Dir: sv.Dir, Env: buildEnv(sv), Port: sv.Port, AutoRestart: sv.AutoRestart}, nil
+	env := append(buildEnv(sv), a.prepareBridge(sv)...)
+	return supervisor.Spec{Exe: exe, Dir: sv.Dir, Env: env, Port: sv.Port, AutoRestart: sv.AutoRestart}, nil
 }
 
 // Only what a server needs from the panel's own environment is passed on; the rest comes from the server's env list.
@@ -407,6 +412,7 @@ var lastFired = map[string]string{}
 // schedule runs daily restarts. A restart is also when a deferred game or panel update is applied.
 func (a *App) schedule(ctx context.Context) {
 	now := time.Now()
+	a.warnRestarts(now)
 	hm := now.Format("15:04")
 	day := now.Format("2006-01-02")
 	var due []store.Server

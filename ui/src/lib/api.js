@@ -109,6 +109,8 @@ export const api = {
   foundations: (s) => get(`/servers/${id(s)}/foundations`),
   installFoundations: (s) => post(`/servers/${id(s)}/foundations`),
   setDatabase: (s, b) => post(`/servers/${id(s)}/database`, b),
+  announce: (s, b) => post(`/servers/${id(s)}/announce`, b),
+  resmon: (s, range) => get(`/servers/${id(s)}/resmon?range=${range}`),
 
   latch: () => get("/latch"),
   latchLink: () => post("/latch/link"),

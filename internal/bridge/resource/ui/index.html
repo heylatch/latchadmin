@@ -1,0 +1,150 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>LatchAdmin notices</title>
+<style>
+  :root {
+    --card: rgba(16, 16, 19, 0.88);
+    --line: rgba(255, 255, 255, 0.09);
+    --ink: #fafafa;
+    --muted: rgba(250, 250, 250, 0.74);
+    --faint: rgba(250, 250, 250, 0.5);
+    --accent: #fafafa;
+    --amber: #fbbf24;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { background: transparent; overflow: hidden; height: 100%; }
+  body {
+    font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
+    pointer-events: none;
+  }
+  #stack {
+    position: fixed; top: 7vh; left: 50%; transform: translateX(-50%);
+    width: min(440px, 92vw); display: flex; flex-direction: column; gap: 10px;
+  }
+  .card {
+    position: relative; overflow: hidden;
+    display: grid; grid-template-columns: auto 1fr auto; gap: 14px; align-items: start;
+    padding: 15px 18px 17px 15px;
+    background: var(--card);
+    border: 1px solid var(--line); border-radius: 16px;
+    box-shadow: 0 18px 50px rgba(0, 0, 0, 0.45), 0 1px 0 rgba(255, 255, 255, 0.05) inset;
+    backdrop-filter: blur(16px) saturate(140%); -webkit-backdrop-filter: blur(16px) saturate(140%);
+    animation: enter 280ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }
+  .card.leaving { animation: leave 180ms ease-in both; }
+  .icon {
+    width: 38px; height: 38px; border-radius: 11px; display: grid; place-items: center;
+    background: rgba(255, 255, 255, 0.08); color: var(--accent);
+  }
+  .icon svg { width: 19px; height: 19px; }
+  .restart .icon { background: rgba(251, 191, 36, 0.15); color: var(--amber); }
+  .body { min-width: 0; padding-top: 1px; }
+  .label {
+    font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .title { margin-top: 3px; font-size: 15.5px; font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; }
+  .text { margin-top: 4px; font-size: 13.5px; line-height: 1.45; color: var(--muted); overflow-wrap: anywhere; white-space: pre-line; }
+  .count {
+    align-self: center; font-size: 24px; font-weight: 650; letter-spacing: -0.01em; color: var(--amber);
+    font-variant-numeric: tabular-nums; font-feature-settings: "tnum";
+  }
+  .bar { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: rgba(255, 255, 255, 0.06); }
+  .bar i { display: block; height: 100%; width: 100%; transform-origin: left; background: rgba(255, 255, 255, 0.35); }
+  .restart .bar i { background: var(--amber); }
+  @keyframes enter { from { opacity: 0; transform: translateY(-12px) scale(0.98); } to { opacity: 1; transform: none; } }
+  @keyframes leave { to { opacity: 0; transform: translateY(-8px) scale(0.98); } }
+  @media (prefers-reduced-motion: reduce) { .card, .card.leaving { animation-duration: 1ms; } }
+</style>
+</head>
+<body>
+<div id="stack" role="status" aria-live="polite"></div>
+<script>
+  "use strict";
+  // callEvent(name, payload) is injected into scripted views by the game; guarded so the page also opens in a browser.
+  const send = (name, payload) => { if (typeof callEvent === "function") callEvent(name, payload === undefined ? null : JSON.stringify(payload)); };
+  const stack = document.getElementById("stack");
+  const MAX = 3;
+  const icons = {
+    announce: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>',
+    restart: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg>',
+  };
+  const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text) n.textContent = text; return n; };
+  const clock = (s) => { s = Math.max(0, Math.ceil(s)); return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); };
+
+  function idleCheck() { if (!stack.children.length) send("ui:idle"); }
+
+  function remove(card) {
+    if (!card.isConnected || card.classList.contains("leaving")) return;
+    cancelAnimationFrame(card._frame);
+    card.classList.add("leaving");
+    setTimeout(() => { card.remove(); idleCheck(); }, 190);
+  }
+
+  function show(n) {
+    const kind = n.kind === "restart" ? "restart" : "announce";
+    // A newer restart warning replaces the one on screen.
+    if (kind === "restart") for (const c of stack.querySelectorAll(".card.restart")) remove(c);
+    while (stack.children.length >= MAX) remove(stack.firstElementChild);
+
+    const card = el("div", "card " + kind);
+    const icon = el("div", "icon"); icon.innerHTML = icons[kind];
+    const body = el("div", "body");
+    body.append(el("div", "label", String(n.label || "")));
+    if (n.title) body.append(el("div", "title", String(n.title)));
+    if (n.text) body.append(el("div", "text", String(n.text)));
+    const count = el("div", "count");
+    const bar = el("div", "bar"); const fill = el("i"); bar.append(fill);
+    card.append(icon, body, count, bar);
+    stack.append(card);
+
+    const start = performance.now();
+    if (kind === "restart") {
+      const total = Math.max(1, Number(n.seconds) || 60) * 1000;
+      const tick = () => {
+        const left = total - (performance.now() - start);
+        count.textContent = clock(left / 1000);
+        fill.style.transform = "scaleX(" + Math.max(0, left / total) + ")";
+        if (left <= 0) {
+          count.textContent = "";
+          if (n.now) body.querySelector(".title").textContent = String(n.now);
+          setTimeout(() => remove(card), 5000);
+          return;
+        }
+        card._frame = requestAnimationFrame(tick);
+      };
+      tick();
+    } else {
+      count.remove();
+      const text = String(n.title || "") + String(n.text || "");
+      const total = Math.min(16000, Math.max(6000, 2500 + text.length * 60));
+      const tick = () => {
+        const left = total - (performance.now() - start);
+        fill.style.transform = "scaleX(" + Math.max(0, left / total) + ")";
+        if (left <= 0) return remove(card);
+        card._frame = requestAnimationFrame(tick);
+      };
+      tick();
+    }
+  }
+
+  window.addEventListener("latchadmin:notice", (e) => {
+    let n = e.detail;
+    if (typeof n === "string") { try { n = JSON.parse(n); } catch (err) { return; } }
+    if (n && typeof n === "object") show(n);
+  });
+  send("ui:ready");
+
+  // Opened straight in a browser (no game): show two samples so the look can be checked.
+  if (typeof callEvent !== "function" && location.search.includes("demo")) {
+    show({ kind: "announce", label: "Announcement", title: "Event at the Great Hall tonight", text: "Doors open at 20:00. Bring your house colours." });
+    show({ kind: "restart", label: "Scheduled restart", title: "The server restarts soon", text: "Finish what you're doing and find a safe spot.", seconds: 299, now: "Restarting now" });
+  }
+</script>
+</body>
+</html>

@@ -65,6 +65,13 @@ type Server struct {
 	AutoStart   bool     `json:"autoStart"`   // start with the panel
 	AutoRestart bool     `json:"autoRestart"` // restart after a crash
 	Restarts    []string `json:"restarts"`    // daily restarts, "HH:MM" local time
+	// In-game notices (the latchadmin bridge resource). NoticesOff turns them off; RestartWarnings are minutes
+	// before a scheduled restart (nil = 10, 5 and 1); NoticeLang is the language of the panel's own notice texts.
+	NoticesOff      bool   `json:"noticesOff,omitempty"`
+	RestartWarnings []int  `json:"restartWarnings"`
+	NoticeLang      string `json:"noticeLang,omitempty"`
+	// BridgeKey (sealed) lets the bridge resource ask the panel for notices. Never sent to the browser.
+	BridgeKey string `json:"bridgeKey,omitempty"`
 	// WasRunning is set while the server runs, so a panel restart (e.g. a self-update) brings it back.
 	WasRunning bool `json:"wasRunning"`
 
@@ -248,6 +255,9 @@ func (s *Store) Servers() []Server {
 func (sv Server) Clone() Server {
 	sv.Env = append([]EnvVar(nil), sv.Env...)
 	sv.Restarts = append([]string(nil), sv.Restarts...)
+	if sv.RestartWarnings != nil {
+		sv.RestartWarnings = append([]int{}, sv.RestartWarnings...)
+	}
 	if sv.ScriptPolicy != nil {
 		m := make(map[string]string, len(sv.ScriptPolicy))
 		for k, v := range sv.ScriptPolicy {

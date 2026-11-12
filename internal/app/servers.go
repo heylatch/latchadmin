@@ -260,7 +260,7 @@ var reservedEnv = map[string]bool{
 	"NODE_OPTIONS": true, "NODE_PATH": true, "NODE_EXTRA_CA_CERTS": true, "NODE_TLS_REJECT_UNAUTHORIZED": true,
 	"NODE_REPL_EXTERNAL_MODULE": true,
 }
-var reservedPrefixes = []string{"LD_", "DYLD_", "COR_", "COMPLUS_", "DOTNET_", "CORECLR_", "MALLOC_", "GCONV_", "NODE_", "OPENSSL_", "SSL_"}
+var reservedPrefixes = []string{"LD_", "DYLD_", "COR_", "COMPLUS_", "DOTNET_", "CORECLR_", "MALLOC_", "GCONV_", "NODE_", "OPENSSL_", "SSL_", "LATCHADMIN_"}
 
 // ReservedEnvKey reports whether a variable can't be set from the panel.
 func ReservedEnvKey(k string) bool {

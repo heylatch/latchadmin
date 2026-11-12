@@ -22,6 +22,7 @@ import (
 
 	"github.com/heylatch/latchadmin/internal/app"
 	"github.com/heylatch/latchadmin/internal/auth"
+	"github.com/heylatch/latchadmin/internal/bridge"
 	"github.com/heylatch/latchadmin/internal/buildinfo"
 	"github.com/heylatch/latchadmin/internal/dbsetup"
 	"github.com/heylatch/latchadmin/internal/games"
@@ -83,6 +84,8 @@ func (s *Server) routes() {
 	m.HandleFunc("DELETE /api/servers/{id}", s.api("server.remove", s.deleteServer))
 	m.HandleFunc("POST /api/servers/{id}/{action}", s.api(signedIn, s.serverAction)) // permission checked per action
 	m.HandleFunc("POST /api/servers/{id}/command", s.api("console.write", s.command))
+	m.HandleFunc("POST /api/servers/{id}/announce", s.api("console.write", s.announce))
+	m.HandleFunc("GET /api/servers/{id}/resmon", s.api(signedIn, s.resmon))
 	m.HandleFunc("GET /api/servers/{id}/foundations", s.api("resources.manage", s.foundationsStatus))
 	m.HandleFunc("POST /api/servers/{id}/foundations", s.api("resources.manage", s.installFoundations))
 	// The panel connects to whatever database host is entered, so only accounts with every permission set one up.
@@ -780,6 +783,15 @@ type serverView struct {
 	GameName string               `json:"gameName"`
 	TokenSet bool                 `json:"tokenSet"`
 	Commands []supervisor.Command `json:"commands"`
+	Notices  noticesView          `json:"notices"`
+}
+
+type noticesView struct {
+	Enabled   bool   `json:"enabled"`
+	Connected bool   `json:"connected"`
+	Version   string `json:"version"`
+	Warnings  []int  `json:"warnings"`
+	Lang      string `json:"lang"`
 }
 
 type envView struct {
@@ -791,7 +803,17 @@ type envView struct {
 
 // view builds the server JSON. Env values are included only for admins and owners.
 func (s *Server) view(sv store.Server, set []string) serverView {
-	v := serverView{Server: sv, Status: s.App.Proc(sv.ID).Status(), Update: s.App.Product(sv.Game, sv.Version)}
+	warnings := sv.RestartWarnings
+	if warnings == nil {
+		warnings = app.DefaultRestartWarnings
+	}
+	lang := sv.NoticeLang
+	if lang == "" {
+		lang = "en"
+	}
+	notices := noticesView{Enabled: !sv.NoticesOff, Connected: s.App.NoticesConnected(sv.ID), Version: bridge.Version(), Warnings: warnings, Lang: lang}
+	sv.BridgeKey = "" // the bridge's key never leaves the panel
+	v := serverView{Server: sv, Status: s.App.Proc(sv.ID).Status(), Update: s.App.Product(sv.Game, sv.Version), Notices: notices}
 	if g, ok := games.ByID(sv.Game); ok {
 		v.GameName = g.Label
 	}
@@ -914,6 +936,9 @@ func (s *Server) patchServer(w http.ResponseWriter, r *http.Request, u ctxUser) 
 		AutoRestart *bool
 		Restarts    *[]string
 		GameUpdate  *string
+		NoticesOff  *bool
+		Warnings    *[]int
+		NoticeLang  *string
 	}
 	if err := decode(r, &in); err != nil {
 		return err
@@ -965,6 +990,33 @@ func (s *Server) patchServer(w http.ResponseWriter, r *http.Request, u ctxUser) 
 				return badRequest(errors.New("unknown game update policy"))
 			}
 			x.GameUpdate = *in.GameUpdate
+		}
+		if in.NoticesOff != nil {
+			x.NoticesOff = *in.NoticesOff
+		}
+		if in.Warnings != nil {
+			seen := map[int]bool{}
+			list := []int{}
+			for _, m := range *in.Warnings {
+				if m < 1 || m > 60 {
+					return fail(400, "badWarning", "Restart warnings are 1 to 60 minutes before the restart.")
+				}
+				if !seen[m] {
+					seen[m] = true
+					list = append(list, m)
+				}
+			}
+			if len(list) > 5 {
+				return fail(400, "tooMany", "At most 5 restart warnings.")
+			}
+			sort.Sort(sort.Reverse(sort.IntSlice(list)))
+			x.RestartWarnings = list
+		}
+		if in.NoticeLang != nil {
+			if *in.NoticeLang != "en" && *in.NoticeLang != "tr" {
+				return badRequest(errors.New("notice language must be en or tr"))
+			}
+			x.NoticeLang = *in.NoticeLang
 		}
 		return nil
 	}); err != nil {
@@ -1675,6 +1727,72 @@ func (s *Server) serverStats(w http.ResponseWriter, r *http.Request, _ ctxUser) 
 		"host":    s.App.Metrics.HostInfo(),
 	})
 	return nil
+}
+
+// ---------- In-game notices and resource performance ----------
+
+func (s *Server) announce(w http.ResponseWriter, r *http.Request, u ctxUser) error {
+	var in struct {
+		Title, Text string
+		ShowName    bool
+	}
+	if err := decode(r, &in); err != nil {
+		return err
+	}
+	sv, err := s.server(r)
+	if err != nil {
+		return err
+	}
+	author := ""
+	if in.ShowName {
+		author = u.Username
+	}
+	connected, err := s.App.Announce(sv.ID, in.Title, in.Text, author)
+	if err != nil {
+		return badRequest(err)
+	}
+	s.App.Store.Audit(u.Username, "server.announce", sv.Name, map[string]string{"title": in.Title, "text": in.Text})
+	writeJSON(w, 200, map[string]bool{"connected": connected})
+	return nil
+}
+
+func (s *Server) resmon(w http.ResponseWriter, r *http.Request, _ ctxUser) error {
+	sv, err := s.server(r)
+	if err != nil {
+		return err
+	}
+	window := time.Hour
+	if r.URL.Query().Get("range") == "6h" {
+		window = 6 * time.Hour
+	}
+	writeJSON(w, 200, s.App.ResourcePerformance(sv.ID, time.Now().Add(-window), 6))
+	return nil
+}
+
+// BridgeHandler serves the latchadmin bridge resource. main runs it on a loopback-only listener, apart from the
+// panel itself, so it's out of reach of anything but this machine. The bridge proves which server it is with the
+// key LatchAdmin gave that server.
+func (s *Server) BridgeHandler() http.Handler {
+	m := http.NewServeMux()
+	m.HandleFunc("GET /bridge/poll", func(w http.ResponseWriter, r *http.Request) {
+		key, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if !ok || len(key) < 32 {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+		notices, err := s.App.BridgePoll(r.Context(), key)
+		if err != nil {
+			if r.Context().Err() == nil {
+				http.Error(w, "unauthorized", http.StatusUnauthorized)
+			}
+			return
+		}
+		if notices == nil {
+			notices = []bridge.Notice{}
+		}
+		writeJSON(w, 200, map[string]any{"notices": notices})
+	})
+	return m
 }
 
 // ---------- Foundations and database ----------

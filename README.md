@@ -27,6 +27,8 @@
 **Watching**
 - Statistics for every server and the machine: players, CPU, memory, uptime and crashes, from 1 hour to 7 days.
 - Discord alerts for your staff: crashes, restarts, game and panel updates, script updates, player records.
+- Announcements and restart warnings on players' screens: write a message in the panel and it shows at the top of every player's screen, and before each scheduled restart players get a countdown (10, 5 and 1 minutes by default). LatchAdmin keeps a small `latchadmin` resource in the server for this.
+- Resource performance: the script time, memory and slow ticks of every resource, from the server's own resource monitor.
 - A public status message for your players: which servers are online, how many are playing and how to connect, kept up to date in one Discord message.
 - Activity log of who did what.
 

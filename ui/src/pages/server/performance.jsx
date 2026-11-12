@@ -5,6 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Query } from "@/components/common"
 import { ChartCard, hasValues, TimeChart } from "@/components/time-chart"
 import { useApi } from "@/hooks/use-api"
+import { ResourcesPerf } from "@/pages/server/resources-perf"
 import { api } from "@/lib/api"
 import { formatDateTime, formatRelative } from "@/lib/format"
 import { cn } from "@/lib/utils"
@@ -89,6 +90,7 @@ export default function PerformanceTab({ server }) {
                   <TimeChart data={mem} series={[{ key: "mem", label: t("server.memory"), color: "var(--series-7)" }]} format={gb} range={range} xDomain={xd} />
                 </ChartCard>
               </div>
+              <ResourcesPerf server={server} />
               <Events events={d.events} />
             </>
           )

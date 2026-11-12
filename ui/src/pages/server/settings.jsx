@@ -15,6 +15,7 @@ import { useApi } from "@/hooks/use-api"
 import { api } from "@/lib/api"
 import { formatBytes } from "@/lib/format"
 import { useCan } from "@/lib/session"
+import { NoticesCard } from "@/pages/server/notices"
 
 function General({ server, reload }) {
   const { t } = useTranslation()
@@ -142,7 +143,10 @@ export default function SettingsTab({ server, reload }) {
   const stopped = server.status.state === "stopped" || server.status.state === "crashed"
   return (
     <div className="grid items-start gap-6 lg:grid-cols-2">
-      <General server={server} reload={reload} />
+      <div className="space-y-6">
+        <General server={server} reload={reload} />
+        <NoticesCard server={server} reload={reload} />
+      </div>
       <div className="space-y-6">
         {can("console.view") && <Logs server={server} />}
         {can("server.remove") && (

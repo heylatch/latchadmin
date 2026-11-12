@@ -1,0 +1,13 @@
+{
+  "name": "latchadmin",
+  "version": "1.0.0",
+  "private": true,
+  "description": "In-game announcements and restart warnings from LatchAdmin. Installed and updated by LatchAdmin; edits here are overwritten.",
+  "main": "server.js",
+  "latchadmin": { "managed": true },
+  "mafiahub": {
+    "serverScripts": ["server.js"],
+    "clientScripts": ["client.js"],
+    "files": ["client.js", "ui/index.html"]
+  }
+}

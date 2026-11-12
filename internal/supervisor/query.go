@@ -148,3 +148,55 @@ func (p *Proc) Sample() Status {
 	p.st.MemBytes, p.st.CPU = p.sample()
 	return p.st
 }
+
+// ResourceStat is one row of the server's "resmon" table: script time and memory of a resource over the last minute.
+type ResourceStat struct {
+	Name      string  `json:"name"`
+	MsPerTick float64 `json:"msPerTick"`
+	MaxMs     float64 `json:"maxMs"`
+	HeapMB    float64 `json:"heapMb"`
+	LimitMB   float64 `json:"limitMb"`
+	GCMs      float64 `json:"gcMs"` // ms of garbage collection per second
+	Slow      int     `json:"slow"` // ticks over the server's slow threshold
+}
+
+var resmonRow = regexp.MustCompile(`^([\w.:@/-]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+(\d+)$`)
+
+// ResourceMonitor runs "resmon" quietly. supported is false when the server printed no resource table (a game
+// version without the command).
+func (p *Proc) ResourceMonitor() (rows []ResourceStat, supported bool, err error) {
+	started := false
+	lines, err := p.Query("resmon", func(l string) (bool, bool) {
+		t := strings.TrimSpace(l)
+		switch {
+		case strings.Contains(l, "Resource monitor"):
+			started = true
+			return true, false
+		case !started:
+			return false, false
+		case strings.HasPrefix(t, "resource ") && strings.Contains(t, "ms/tick"):
+			return true, false
+		case resmonRow.MatchString(t):
+			return true, false
+		case t == "":
+			return true, true
+		}
+		return false, false
+	}, 400*time.Millisecond, 3*time.Second)
+	if err != nil {
+		return nil, false, err
+	}
+	for _, l := range lines {
+		if strings.Contains(l, "Resource monitor") {
+			supported = true
+		}
+		m := resmonRow.FindStringSubmatch(strings.TrimSpace(l))
+		if m == nil {
+			continue
+		}
+		num := func(i int) float64 { f, _ := strconv.ParseFloat(m[i], 64); return f }
+		slow, _ := strconv.Atoi(m[7])
+		rows = append(rows, ResourceStat{Name: m[1], MsPerTick: num(2), MaxMs: num(3), HeapMB: num(4), LimitMB: num(5), GCMs: num(6), Slow: slow})
+	}
+	return rows, supported, nil
+}
